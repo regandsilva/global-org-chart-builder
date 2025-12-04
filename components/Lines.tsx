@@ -289,7 +289,7 @@ export const Lines: React.FC<LinesProps> = ({ people, deptHeads = [], scale, set
     });
 
     // 3. Manager to direct reports (within departments)
-    Object.entries(connectionsByManager).forEach(([mgrId, childIds]) => {
+    Object.entries(connectionsByManager).forEach(([mgrId, childIds]: [string, string[]]) => {
       const mgrPos = getNodePosition(mgrId, containerRect, forceRefresh);
       if (!mgrPos) return;
 
