@@ -1,0 +1,5 @@
+{
+  "name": "Global Org Chart Builder",
+  "description": "A smart organizational chart builder that automatically groups teams by department and location (UK, Hong Kong, China) with Gemini-powered text import.",
+  "requestFramePermissions": []
+}
