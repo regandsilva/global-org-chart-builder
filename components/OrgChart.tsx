@@ -778,7 +778,7 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
                           className="w-full px-3 py-2.5 border border-blue-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-400 focus:border-blue-400 outline-none bg-white appearance-none cursor-pointer h-32"
                           value={editingPerson.supportedIds || []}
                           onChange={e => {
-                            const selected = Array.from(e.target.selectedOptions, option => option.value);
+                            const selected = Array.from(e.target.selectedOptions, (option: HTMLOptionElement) => option.value);
                             setEditingPerson({
                               ...editingPerson, 
                               supportedIds: selected
