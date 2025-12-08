@@ -2071,18 +2071,18 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
             minHeight: '100%'
           }}
         >
-          <div id="chart-content" className="inline-block min-w-max p-24 relative" style={{ isolation: 'isolate' }}>
+          <div id="chart-content" className="inline-block min-w-max p-24 relative">
             
-            {/* Lines Layer - Rendered behind all content */}
+            {/* Lines Layer - z-index 5, above backgrounds (2), below cards (40+) */}
             <Lines people={people} deptHeads={deptHeads} scale={scale} settings={lineSettings} />
 
-            <div className="flex flex-col items-center gap-20 relative" style={{ zIndex: 10 }}>
+            <div className="flex flex-col items-center gap-20 relative">
               
               {/* Level 1: Executive */}
               {rootPeople.length > 0 ? (
-                <div className="flex justify-center gap-16 shrink-0" style={{ zIndex: 60 }}>
+                <div className="flex justify-center gap-16 shrink-0">
                   {rootPeople.map(person => (
-                    <div key={person.id} className="card-node shrink-0">
+                    <div key={person.id} className="card-node shrink-0 relative">
                       <Card 
                         person={person} 
                         onClick={handleEditClick} 
@@ -2301,7 +2301,7 @@ const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDra
   return (
     <div className="flex flex-col items-center" style={{ marginTop: tierOffset }}>
       {/* The Manager Card */}
-      <div className="card-node z-30 shrink-0 mb-12 relative group/add">
+      <div className="card-node shrink-0 mb-12 relative group/add">
         <Card 
           person={root} 
           onClick={onPersonClick} 
@@ -2445,19 +2445,25 @@ const TeamGroup: React.FC<{
   const colors = colorStyles[teamColor || 'indigo'] || colorStyles.indigo;
 
   return (
-    <div className="flex flex-col items-center relative" style={{ zIndex: 10 }}>
-        <div className={`${colors.bg} border border-dashed ${colors.border} rounded-2xl p-4 pt-8 relative flex flex-col gap-8 items-center`}>
-            {/* Team Label */}
-            <div 
-                className={`absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 ${colors.label} border ${colors.labelBorder} rounded-md text-[10px] font-bold uppercase tracking-wide shadow-sm whitespace-nowrap`}
-                style={{ zIndex: 20 }}
-            >
-                {teamName}
-            </div>
+    <div className="flex flex-col items-center relative">
+        {/* Background container - z-index -10, lines (-5) appear above it */}
+        <div 
+            className={`${colors.bg} border border-dashed ${colors.border} rounded-2xl absolute inset-0`}
+            style={{ zIndex: -10 }}
+        ></div>
+        {/* Team Label - z-index 100, above everything */}
+        <div 
+            className={`px-3 py-1 ${colors.label} border ${colors.labelBorder} rounded-md text-[10px] font-bold uppercase tracking-wide shadow-sm whitespace-nowrap`}
+            style={{ zIndex: 100, position: 'relative', marginTop: '-12px', marginBottom: '8px' }}
+        >
+            {teamName}
+        </div>
+        {/* Content container */}
+        <div className="p-4 pt-0 flex flex-col gap-8 items-center relative">
 
             {/* If root is included as head, render it first */}
             {includeRootAsHead && rootPerson && (
-              <div className="card-node z-30 shrink-0 relative group/add">
+              <div className="card-node shrink-0 relative group/add">
                 <Card 
                   person={rootPerson} 
                   onClick={onPersonClick} 

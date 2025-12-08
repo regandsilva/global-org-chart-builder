@@ -572,7 +572,7 @@ export const Lines: React.FC<LinesProps> = ({ people, deptHeads = [], scale, set
         left: 0,
         width: '100%',
         height: '100%',
-        zIndex: 0
+        zIndex: -5
       }}
     >
       <g className="transition-opacity duration-150">
