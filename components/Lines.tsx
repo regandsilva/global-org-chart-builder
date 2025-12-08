@@ -367,40 +367,113 @@ export const Lines: React.FC<LinesProps> = ({ people, deptHeads = [], scale, set
     });
 
     // 5. Support lines (dotted blue)
+    // Group support links by the support person to create shared stems
+    const supportByPerson: Record<string, Array<{ supportedId: string; person: typeof people[0] }>> = {};
     people.forEach(person => {
       if (person.supportedIds?.length) {
-        person.supportedIds.forEach(supportedId => {
-          const personPos = getNodePosition(person.id, containerRect, forceRefresh);
-          const supportedPos = getNodePosition(supportedId, containerRect, forceRefresh);
+        supportByPerson[person.id] = person.supportedIds.map(supportedId => ({
+          supportedId,
+          person
+        }));
+      }
+    });
 
-          if (personPos && supportedPos) {
-            // Determine which side is closer
-            const isRightSide = personPos.centerX > supportedPos.centerX;
-            
-            // Start from Supported Person's side (Target)
-            const startX = isRightSide ? supportedPos.right : supportedPos.left;
-            const startY = supportedPos.top + (supportedPos.bottom - supportedPos.top) / 2;
-            
-            // End at Support Staff's side (Source)
-            const endX = isRightSide ? personPos.left : personPos.right;
-            const endY = personPos.top + (personPos.bottom - personPos.top) / 2;
-            
-            const centerMidX = startX + (endX - startX) / 2;
+    // Track global lane index for parallel routing
+    let globalLaneIndex = 0;
 
-            let path = `M ${startX} ${startY} 
-                    L ${centerMidX} ${startY} 
-                    L ${centerMidX} ${endY} 
-                    L ${endX} ${endY}`;
+    Object.entries(supportByPerson).forEach(([personId, links]) => {
+      const personPos = getNodePosition(personId, containerRect, forceRefresh);
+      if (!personPos || links.length === 0) return;
 
-            newPaths.push({
-              key: `support-${person.id}-${supportedId}`,
-              d: path,
-              stroke: person.supportColor || '#3b82f6', // Use custom color or default Blue-500
-              strokeWidth: secondaryWidth,
-              strokeDasharray: '4 4',
-              opacity: 0.6
-            });
-          }
+      const person = links[0].person;
+      
+      // Get positions of all supported people
+      const supportedPositions = links.map(link => ({
+        id: link.supportedId,
+        pos: getNodePosition(link.supportedId, containerRect, forceRefresh)
+      })).filter(item => item.pos !== null) as Array<{ id: string; pos: NodePosition }>;
+
+      if (supportedPositions.length === 0) return;
+
+      // Calculate lane offset for this support person
+      const laneOffset = globalLaneIndex * 12;
+      globalLaneIndex++;
+
+      // Determine if most targets are to the left or right
+      const avgTargetX = supportedPositions.reduce((sum, item) => sum + item.pos.centerX, 0) / supportedPositions.length;
+      const isRightSide = personPos.centerX > avgTargetX;
+
+      // Start point: from support staff's side
+      const sideOffset = (globalLaneIndex % 5) * 8 - 16;
+      const startX = isRightSide ? personPos.left : personPos.right;
+      const startY = personPos.top + (personPos.bottom - personPos.top) / 2 + sideOffset;
+
+      // Find the lowest bottom among all supported cards (for the horizontal channel)
+      const maxBottom = Math.max(...supportedPositions.map(item => item.pos.bottom));
+      const channelY = maxBottom + 20 + (globalLaneIndex % 3) * 10;
+
+      // Calculate the stem X position (where the vertical stem goes)
+      const stemX = startX + (isRightSide ? -40 : 40) - (globalLaneIndex * 10);
+
+      if (supportedPositions.length === 1) {
+        // Single target - simple L-path with perpendicular cut
+        const target = supportedPositions[0];
+        const endX = isRightSide 
+          ? target.pos.right - 25
+          : target.pos.left + 25;
+        const endY = target.pos.bottom;
+        const cutY = endY + 15;
+
+        const path = `M ${startX} ${startY} 
+                L ${stemX} ${startY}
+                L ${stemX} ${cutY}
+                L ${endX} ${cutY}
+                L ${endX} ${endY}`;
+
+        newPaths.push({
+          key: `support-${personId}-${target.id}`,
+          d: path,
+          stroke: person.supportColor || '#3b82f6',
+          strokeWidth: secondaryWidth,
+          strokeDasharray: '4 4',
+          opacity: 0.7
+        });
+      } else {
+        // Multiple targets - shared stem that splits
+        // Sort targets by X position
+        const sortedTargets = [...supportedPositions].sort((a, b) => a.pos.centerX - b.pos.centerX);
+        
+        // Calculate end points for each target
+        const endpoints = sortedTargets.map((target, idx) => {
+          const endX = target.pos.centerX + (idx - (sortedTargets.length - 1) / 2) * 15;
+          return {
+            id: target.id,
+            x: endX,
+            y: target.pos.bottom
+          };
+        });
+
+        // Main stem path: from support staff to the horizontal channel
+        let mainPath = `M ${startX} ${startY} L ${stemX} ${startY} L ${stemX} ${channelY}`;
+
+        // Horizontal spine connecting all drop points
+        const leftMostX = Math.min(...endpoints.map(e => e.x));
+        const rightMostX = Math.max(...endpoints.map(e => e.x));
+        
+        mainPath += ` L ${leftMostX} ${channelY} M ${leftMostX} ${channelY} L ${rightMostX} ${channelY}`;
+
+        // Add vertical drops to each target
+        endpoints.forEach(endpoint => {
+          mainPath += ` M ${endpoint.x} ${channelY} L ${endpoint.x} ${endpoint.y}`;
+        });
+
+        newPaths.push({
+          key: `support-${personId}-multi`,
+          d: mainPath,
+          stroke: person.supportColor || '#3b82f6',
+          strokeWidth: secondaryWidth,
+          strokeDasharray: '4 4',
+          opacity: 0.7
         });
       }
     });

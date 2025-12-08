@@ -429,7 +429,7 @@ export const Card: React.FC<CardProps> = React.memo(({
             <Users size={12} className="text-blue-400 shrink-0" />
             <span className="text-[10px] text-slate-400">Supports:</span>
           </div>
-          <div className="flex flex-wrap gap-1 pl-5">
+          <div className="flex flex-wrap gap-1 pl-5 max-h-24 overflow-y-auto custom-scrollbar">
             {supportedPeople.map(p => (
               <div key={p.id} className="flex items-center gap-1 bg-white border border-slate-200 rounded-full px-1.5 py-0.5">
                 <div className="w-3 h-3 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-[6px] font-bold shrink-0">
