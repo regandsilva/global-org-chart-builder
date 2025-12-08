@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Person, CardSettings } from '../types';
-import { MapPin, GripVertical, Link, Crown, MoreHorizontal, Mail, Phone } from 'lucide-react';
+import { MapPin, GripVertical, Link, Crown, MoreHorizontal, Mail, Phone, Users } from 'lucide-react';
 
 // Enhanced color mapping for department styles
 const getDeptStyle = (deptColor: string = 'slate') => {
@@ -68,6 +68,7 @@ interface CardProps {
   onDrop: (e: React.DragEvent, targetId: string) => void;
   isDragging?: boolean;
   secondaryManager?: Person;
+  supportedPeople?: Person[];
   onEdit?: () => void;
   onDelete?: () => void;
   deptColorOverride?: string;
@@ -84,6 +85,7 @@ export const Card: React.FC<CardProps> = React.memo(({
   onDrop,
   isDragging = false,
   secondaryManager,
+  supportedPeople,
   onEdit,
   onDelete,
   deptColorOverride,
@@ -416,6 +418,26 @@ export const Card: React.FC<CardProps> = React.memo(({
                 </div>
                 <span className="text-[10px] font-semibold text-slate-600 truncate">{secondaryManager.name}</span>
               </div>
+          </div>
+        </div>
+      )}
+
+      {/* Supported People */}
+      {supportedPeople && supportedPeople.length > 0 && (
+        <div className="px-4 py-2 bg-slate-50 border-t border-slate-100 flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <Users size={12} className="text-blue-400 shrink-0" />
+            <span className="text-[10px] text-slate-400">Supports:</span>
+          </div>
+          <div className="flex flex-wrap gap-1 pl-5">
+            {supportedPeople.map(p => (
+              <div key={p.id} className="flex items-center gap-1 bg-white border border-slate-200 rounded-full px-1.5 py-0.5">
+                <div className="w-3 h-3 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-[6px] font-bold shrink-0">
+                    {p.name.substring(0,2)}
+                </div>
+                <span className="text-[9px] font-semibold text-slate-600 truncate max-w-[80px]">{p.name}</span>
+              </div>
+            ))}
           </div>
         </div>
       )}

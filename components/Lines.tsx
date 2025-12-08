@@ -366,6 +366,45 @@ export const Lines: React.FC<LinesProps> = ({ people, deptHeads = [], scale, set
       }
     });
 
+    // 5. Support lines (dotted blue)
+    people.forEach(person => {
+      if (person.supportedIds?.length) {
+        person.supportedIds.forEach(supportedId => {
+          const personPos = getNodePosition(person.id, containerRect, forceRefresh);
+          const supportedPos = getNodePosition(supportedId, containerRect, forceRefresh);
+
+          if (personPos && supportedPos) {
+            // Determine which side is closer
+            const isRightSide = personPos.centerX > supportedPos.centerX;
+            
+            // Start from Supported Person's side (Target)
+            const startX = isRightSide ? supportedPos.right : supportedPos.left;
+            const startY = supportedPos.top + (supportedPos.bottom - supportedPos.top) / 2;
+            
+            // End at Support Staff's side (Source)
+            const endX = isRightSide ? personPos.left : personPos.right;
+            const endY = personPos.top + (personPos.bottom - personPos.top) / 2;
+            
+            const centerMidX = startX + (endX - startX) / 2;
+
+            let path = `M ${startX} ${startY} 
+                    L ${centerMidX} ${startY} 
+                    L ${centerMidX} ${endY} 
+                    L ${endX} ${endY}`;
+
+            newPaths.push({
+              key: `support-${person.id}-${supportedId}`,
+              d: path,
+              stroke: person.supportColor || '#3b82f6', // Use custom color or default Blue-500
+              strokeWidth: secondaryWidth,
+              strokeDasharray: '4 4',
+              opacity: 0.6
+            });
+          }
+        });
+      }
+    });
+
     setPathsData(newPaths);
   }, [people, deptHeads, deptHeadIds, connectionsByManager, scale, getNodePosition, getBadgePosition, createElbowPath, createTreePath, primaryColor, primaryWidth, secondaryWidth, secondaryStyle, cornerRadius, useRandomSecondaryColors, secondaryBaseColor, getColorFromId]);
 

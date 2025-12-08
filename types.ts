@@ -12,6 +12,9 @@ export interface Person {
   location: Country | string;
   managerId?: string | null;
   secondaryManagerIds?: string[]; // New field for dotted-line reporting
+  supportedIds?: string[]; // New field for support staff relationships
+  supportColor?: string; // Custom color for support lines
+  tier?: number; // Visual tier/level override
   photoUrl?: string;
   teamName?: string; // New field for sub-team grouping
   isTeamLead?: boolean; // New field to designate team leaders

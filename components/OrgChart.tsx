@@ -722,6 +722,24 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
                       </div>
                       <p className="text-[10px] text-slate-400 mt-1">The direct reporting relationship shown with a solid line</p>
                     </div>
+
+                    <div className="space-y-1 pt-2 border-t border-slate-200">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Visual Tier (Level)</label>
+                      <div className="flex items-center gap-2">
+                        <input 
+                          type="number"
+                          min="0"
+                          max="20"
+                          className="w-20 px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                          value={editingPerson.tier || ''}
+                          onChange={e => setEditingPerson({...editingPerson, tier: e.target.value ? parseInt(e.target.value) : undefined})}
+                          placeholder="Auto"
+                        />
+                        <p className="text-[10px] text-slate-400 flex-1">
+                          Force this person to appear at a specific level (0 = Top). Leave empty for automatic.
+                        </p>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="p-4 bg-amber-50/50 rounded-xl border border-amber-100 space-y-4">
@@ -746,6 +764,63 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
                         <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-amber-400 pointer-events-none" />
                       </div>
                       <p className="text-[10px] text-amber-600/70 mt-1">Cross-functional or matrix reporting shown on card</p>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-100 space-y-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-blue-600 uppercase tracking-wider flex items-center gap-1">
+                        <Users size={10} /> Supports (Support Staff)
+                      </label>
+                      <div className="relative">
+                        <select 
+                          multiple
+                          className="w-full px-3 py-2.5 border border-blue-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-400 focus:border-blue-400 outline-none bg-white appearance-none cursor-pointer h-32"
+                          value={editingPerson.supportedIds || []}
+                          onChange={e => {
+                            const selected = Array.from(e.target.selectedOptions, option => option.value);
+                            setEditingPerson({
+                              ...editingPerson, 
+                              supportedIds: selected
+                            });
+                          }}
+                        >
+                          {people.filter(p => p.id !== editingPerson.id).map(p => (
+                            <option key={`sup-${p.id}`} value={p.id}>{p.name} — {p.title}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <p className="text-[10px] text-blue-600/70 mt-1">Select multiple people (hold Ctrl/Cmd)</p>
+                    </div>
+
+                    {/* Support Line Color */}
+                    <div className="space-y-2 pt-2 border-t border-blue-200/50">
+                      <label className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Line Color</label>
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { name: 'blue', hex: '#3b82f6', bg: 'bg-blue-500' },
+                          { name: 'indigo', hex: '#6366f1', bg: 'bg-indigo-500' },
+                          { name: 'violet', hex: '#8b5cf6', bg: 'bg-violet-500' },
+                          { name: 'purple', hex: '#a855f7', bg: 'bg-purple-500' },
+                          { name: 'fuchsia', hex: '#d946ef', bg: 'bg-fuchsia-500' },
+                          { name: 'pink', hex: '#ec4899', bg: 'bg-pink-500' },
+                          { name: 'rose', hex: '#f43f5e', bg: 'bg-rose-500' },
+                          { name: 'orange', hex: '#f97316', bg: 'bg-orange-500' },
+                          { name: 'amber', hex: '#f59e0b', bg: 'bg-amber-500' },
+                          { name: 'emerald', hex: '#10b981', bg: 'bg-emerald-500' },
+                          { name: 'teal', hex: '#14b8a6', bg: 'bg-teal-500' },
+                          { name: 'cyan', hex: '#06b6d4', bg: 'bg-cyan-500' },
+                          { name: 'slate', hex: '#64748b', bg: 'bg-slate-500' },
+                        ].map(color => (
+                          <button
+                            key={color.name}
+                            type="button"
+                            onClick={() => setEditingPerson({...editingPerson, supportColor: color.hex})}
+                            className={`w-6 h-6 rounded-full ${color.bg} transition-all ${editingPerson.supportColor === color.hex ? 'ring-2 ring-offset-2 ring-blue-400 scale-110' : 'hover:scale-105 opacity-70 hover:opacity-100'}`}
+                            title={color.name}
+                          />
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </>
@@ -2017,6 +2092,7 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
                         onDrop={onCardDrop}
                         isDragging={draggedPersonId === person.id}
                         secondaryManager={getSecondaryManager(person)}
+                        supportedPeople={people.filter(p => person.supportedIds?.includes(p.id))}
                         onEdit={() => handleEditClick(person)}
                         onDelete={() => handleDeleteClick(person.id)}
                         cardSettings={cardSettings}
@@ -2143,9 +2219,10 @@ interface TreeProps {
   locationColors?: Record<string, string>;
   onAddDirectReport?: (managerId: string, department?: string, location?: string) => void;
   cardSettings?: CardSettings;
+  level?: number;
 }
 
-const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDragStart, onDragEnd, onDrop, draggedId, getSecondaryManager, onEdit, onDelete, onDeletePerson, isInsideParentTeam = false, departmentColors = {}, locationColors = {}, onAddDirectReport, cardSettings }) => {
+const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDragStart, onDragEnd, onDrop, draggedId, getSecondaryManager, onEdit, onDelete, onDeletePerson, isInsideParentTeam = false, departmentColors = {}, locationColors = {}, onAddDirectReport, cardSettings, level = 0 }) => {
   
   // Find direct reports
   const directReports = useMemo(() => {
@@ -2170,6 +2247,10 @@ const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDra
 
   const hasChildren = directReports.length > 0;
 
+  // Calculate tier offset (push down)
+  // Assuming ~200px per level. If tier is set and greater than current level, add margin.
+  const tierOffset = (root.tier && root.tier > level) ? (root.tier - level) * 200 : 0;
+
   // If root has a team name AND we're not already inside a parent's team, wrap everything
   const rootTeamName = root.teamName;
   
@@ -2189,33 +2270,36 @@ const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDra
     const otherTeamsList = Object.entries(otherTeamsMap);
 
     return (
-      <TeamGroup 
-        teamName={rootTeamName}
-        members={[root, ...sameTeamMembers]}
-        otherTeams={otherTeamsList}
-        people={people}
-        onPersonClick={onPersonClick}
-        onDragStart={onDragStart}
-        onDrop={onDrop}
-        onDragEnd={onDragEnd}
-        draggedId={draggedId}
-        getSecondaryManager={getSecondaryManager}
-        onDeletePerson={onDeletePerson}
-        includeRootAsHead={true}
-        rootPerson={root}
-        onRootEdit={onEdit}
-        onRootDelete={onDelete}
-        teamColor={teamColor}
-        departmentColors={departmentColors}
-        locationColors={locationColors}
-        onAddDirectReport={onAddDirectReport}
-        cardSettings={cardSettings}
-      />
+      <div style={{ marginTop: tierOffset }}>
+        <TeamGroup 
+          teamName={rootTeamName}
+          members={[root, ...sameTeamMembers]}
+          otherTeams={otherTeamsList}
+          people={people}
+          onPersonClick={onPersonClick}
+          onDragStart={onDragStart}
+          onDrop={onDrop}
+          onDragEnd={onDragEnd}
+          draggedId={draggedId}
+          getSecondaryManager={getSecondaryManager}
+          onDeletePerson={onDeletePerson}
+          includeRootAsHead={true}
+          rootPerson={root}
+          onRootEdit={onEdit}
+          onRootDelete={onDelete}
+          teamColor={teamColor}
+          departmentColors={departmentColors}
+          locationColors={locationColors}
+          onAddDirectReport={onAddDirectReport}
+          cardSettings={cardSettings}
+          level={level}
+        />
+      </div>
     );
   }
 
   return (
-    <div className="flex flex-col items-center">
+    <div className="flex flex-col items-center" style={{ marginTop: tierOffset }}>
       {/* The Manager Card */}
       <div className="card-node z-30 shrink-0 mb-12 relative group/add">
         <Card 
@@ -2227,6 +2311,7 @@ const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDra
           onDrop={onDrop}
           isDragging={draggedId === root.id}
           secondaryManager={getSecondaryManager(root)}
+          supportedPeople={people.filter(p => root.supportedIds?.includes(p.id))}
           onEdit={onEdit}
           onDelete={onDelete}
           deptColorOverride={departmentColors[root.department]}
@@ -2272,6 +2357,7 @@ const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDra
                   locationColors={locationColors}
                   onAddDirectReport={onAddDirectReport}
                   cardSettings={cardSettings}
+                  level={level + 1}
                />
              );
           })}
@@ -2297,6 +2383,7 @@ const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDra
                      locationColors={locationColors}
                      onAddDirectReport={onAddDirectReport}
                      cardSettings={cardSettings}
+                     level={level + 1}
                    />
                 ))}
              </div>
@@ -2331,7 +2418,8 @@ const TeamGroup: React.FC<{
   locationColors?: Record<string, string>;
   onAddDirectReport?: (managerId: string, department?: string, location?: string) => void;
   cardSettings?: CardSettings;
-}> = ({ teamName, members, people, onPersonClick, onDragStart, onDragEnd, onDrop, draggedId, getSecondaryManager, onDeletePerson, includeRootAsHead, rootPerson, onRootEdit, onRootDelete, teamColor, otherTeams, others, departmentColors = {}, locationColors = {}, onAddDirectReport, cardSettings }) => {
+  level?: number;
+}> = ({ teamName, members, people, onPersonClick, onDragStart, onDragEnd, onDrop, draggedId, getSecondaryManager, onDeletePerson, includeRootAsHead, rootPerson, onRootEdit, onRootDelete, teamColor, otherTeams, others, departmentColors = {}, locationColors = {}, onAddDirectReport, cardSettings, level = 0 }) => {
   
   // Sort: Team Leader first, then root if included
   const sortedMembers = useMemo(() => {
@@ -2379,6 +2467,7 @@ const TeamGroup: React.FC<{
                   onDrop={onDrop}
                   isDragging={draggedId === rootPerson.id}
                   secondaryManager={getSecondaryManager(rootPerson)}
+                  supportedPeople={people.filter(p => rootPerson.supportedIds?.includes(p.id))}
                   onEdit={onRootEdit}
                   onDelete={onRootDelete}
                   deptColorOverride={departmentColors[rootPerson.department]}
@@ -2419,6 +2508,7 @@ const TeamGroup: React.FC<{
                         locationColors={locationColors}
                         onAddDirectReport={onAddDirectReport}
                         cardSettings={cardSettings}
+                        level={includeRootAsHead ? level + 1 : level}
                     />
                 ))}
             </div>
@@ -2446,6 +2536,7 @@ const TeamGroup: React.FC<{
                       locationColors={locationColors}
                       onAddDirectReport={onAddDirectReport}
                       cardSettings={cardSettings}
+                      level={includeRootAsHead ? level + 1 : level}
                     />
                   );
                 })}
