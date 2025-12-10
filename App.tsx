@@ -367,10 +367,46 @@ const App: React.FC = () => {
     if (!element) return;
 
     try {
-      // Use a slightly larger scale for better quality, or just capture as is.
-      // Since the chart might be zoomed out, we want to capture the full content.
-      // The #chart-content element is the inner container which has the full size.
-      const dataUrl = await toPng(element, { backgroundColor: '#f8fafc', quality: 1.0, pixelRatio: 2 });
+      // Find the SVG lines element and temporarily adjust for export
+      const svgElement = element.querySelector('svg');
+      const originalStyles: { zIndex?: string; position?: string; opacity?: string } = {};
+      
+      if (svgElement) {
+        // Store original styles
+        originalStyles.zIndex = svgElement.style.zIndex;
+        originalStyles.position = svgElement.style.position;
+        originalStyles.opacity = svgElement.style.opacity;
+        
+        // Ensure SVG is visible and properly positioned for capture
+        svgElement.style.zIndex = '5';
+        svgElement.style.position = 'absolute';
+        svgElement.style.opacity = '1';
+      }
+
+      // Use html-to-image with proper SVG handling
+      const dataUrl = await toPng(element, { 
+        backgroundColor: '#f8fafc', 
+        quality: 1.0, 
+        pixelRatio: 2,
+        cacheBust: true,
+        includeQueryParams: true,
+        skipFonts: false,
+        filter: (node) => {
+          // Include all nodes, especially SVG
+          return true;
+        },
+        style: {
+          overflow: 'visible'
+        }
+      });
+
+      // Restore original styles
+      if (svgElement) {
+        if (originalStyles.zIndex !== undefined) svgElement.style.zIndex = originalStyles.zIndex;
+        if (originalStyles.position !== undefined) svgElement.style.position = originalStyles.position;
+        if (originalStyles.opacity !== undefined) svgElement.style.opacity = originalStyles.opacity;
+      }
+
       const link = document.createElement('a');
       link.download = 'org-chart.png';
       link.href = dataUrl;

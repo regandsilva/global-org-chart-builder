@@ -359,7 +359,7 @@ export const Lines: React.FC<LinesProps> = ({ people, deptHeads = [], scale, set
               stroke: useRandomSecondaryColors ? getColorFromId(`${person.id}-${secMgrId}`) : secondaryBaseColor,
               strokeWidth: secondaryWidth,
               strokeDasharray: secondaryStyle === 'dotted' ? '6 4' : secondaryStyle === 'dashed' ? '12 6' : undefined,
-              opacity: 0.8
+              opacity: 1
             });
           }
         });
@@ -367,7 +367,33 @@ export const Lines: React.FC<LinesProps> = ({ people, deptHeads = [], scale, set
     });
 
     // 5. Support lines (dotted blue)
-    // Group support links by the support person to create shared stems
+    // First, collect ALL support relationships to know how many lines target each person
+    const allSupportLinks: Array<{ supporterId: string; supportedId: string; person: typeof people[0] }> = [];
+    people.forEach(person => {
+      if (person.supportedIds?.length) {
+        person.supportedIds.forEach(supportedId => {
+          allSupportLinks.push({
+            supporterId: person.id,
+            supportedId,
+            person
+          });
+        });
+      }
+    });
+
+    // Group by supported person (target) to track how many lines go to each target
+    const linksByTarget: Record<string, typeof allSupportLinks> = {};
+    allSupportLinks.forEach(link => {
+      if (!linksByTarget[link.supportedId]) {
+        linksByTarget[link.supportedId] = [];
+      }
+      linksByTarget[link.supportedId].push(link);
+    });
+
+    // Track global index for each support person for unique routing
+    let globalSupporterIndex = 0;
+
+    // Now process each support person's links
     const supportByPerson: Record<string, Array<{ supportedId: string; person: typeof people[0] }>> = {};
     people.forEach(person => {
       if (person.supportedIds?.length) {
@@ -378,51 +404,66 @@ export const Lines: React.FC<LinesProps> = ({ people, deptHeads = [], scale, set
       }
     });
 
-    // Track global lane index for parallel routing
-    let globalLaneIndex = 0;
-
     Object.entries(supportByPerson).forEach(([personId, links]) => {
       const personPos = getNodePosition(personId, containerRect, forceRefresh);
       if (!personPos || links.length === 0) return;
 
       const person = links[0].person;
+      const currentSupporterIndex = globalSupporterIndex;
+      globalSupporterIndex++;
       
       // Get positions of all supported people
-      const supportedPositions = links.map(link => ({
-        id: link.supportedId,
-        pos: getNodePosition(link.supportedId, containerRect, forceRefresh)
-      })).filter(item => item.pos !== null) as Array<{ id: string; pos: NodePosition }>;
+      const supportedPositions = links.map(link => {
+        // Find this link's index among all links to the same target
+        const targetLinks = linksByTarget[link.supportedId] || [];
+        const indexAmongTargetLinks = targetLinks.findIndex(l => l.supporterId === personId);
+        const totalLinksToTarget = targetLinks.length;
+        
+        return {
+          id: link.supportedId,
+          pos: getNodePosition(link.supportedId, containerRect, forceRefresh),
+          indexAmongTargetLinks,
+          totalLinksToTarget
+        };
+      }).filter(item => item.pos !== null) as Array<{ id: string; pos: NodePosition; indexAmongTargetLinks: number; totalLinksToTarget: number }>;
 
       if (supportedPositions.length === 0) return;
-
-      // Calculate lane offset for this support person
-      const laneOffset = globalLaneIndex * 12;
-      globalLaneIndex++;
 
       // Determine if most targets are to the left or right
       const avgTargetX = supportedPositions.reduce((sum, item) => sum + item.pos.centerX, 0) / supportedPositions.length;
       const isRightSide = personPos.centerX > avgTargetX;
 
-      // Start point: from support staff's side
-      const sideOffset = (globalLaneIndex % 5) * 8 - 16;
+      // Start point: from support staff's side - use unique offset per supporter
+      const sideOffset = (currentSupporterIndex % 5) * 8 - 16;
       const startX = isRightSide ? personPos.left : personPos.right;
       const startY = personPos.top + (personPos.bottom - personPos.top) / 2 + sideOffset;
 
-      // Find the lowest bottom among all supported cards (for the horizontal channel)
-      const maxBottom = Math.max(...supportedPositions.map(item => item.pos.bottom));
-      const channelY = maxBottom + 20 + (globalLaneIndex % 3) * 10;
-
-      // Calculate the stem X position (where the vertical stem goes)
-      const stemX = startX + (isRightSide ? -40 : 40) - (globalLaneIndex * 10);
+      // Calculate the stem X position - unique per supporter
+      const stemX = startX + (isRightSide ? -40 : 40) - (currentSupporterIndex * 15);
 
       if (supportedPositions.length === 1) {
-        // Single target - simple L-path with perpendicular cut
+        // Single target - route with unique offset based on how many lines go to this target
         const target = supportedPositions[0];
-        const endX = isRightSide 
-          ? target.pos.right - 25
-          : target.pos.left + 25;
+        
+        // Calculate card width to determine offset from center
+        const cardWidth = target.pos.right - target.pos.left;
+        // Base offset from center - never use center (reserved for hierarchy lines)
+        // Position lines in the left or right quarter of the card
+        const baseOffset = cardWidth * 0.25; // 25% from center
+        
+        // Calculate unique X offset for this line based on its index among lines to this target
+        const spreadWidth = 20;
+        const indexOffset = target.totalLinksToTarget > 1 
+          ? (target.indexAmongTargetLinks - (target.totalLinksToTarget - 1) / 2) * spreadWidth
+          : 0;
+        
+        // Determine which side to attach based on supporter position relative to target
+        const attachSide = personPos.centerX < target.pos.centerX ? -1 : 1;
+        const endX = target.pos.centerX + (baseOffset * attachSide) + indexOffset;
         const endY = target.pos.bottom;
-        const cutY = endY + 15;
+        
+        // Unique Y for the horizontal channel based on supporter index
+        const cutY = endY + 20 + (currentSupporterIndex * 15);
 
         const path = `M ${startX} ${startY} 
                 L ${stemX} ${startY}
@@ -436,19 +477,37 @@ export const Lines: React.FC<LinesProps> = ({ people, deptHeads = [], scale, set
           stroke: person.supportColor || '#3b82f6',
           strokeWidth: secondaryWidth,
           strokeDasharray: '4 4',
-          opacity: 0.7
+          opacity: 1
         });
       } else {
         // Multiple targets - shared stem that splits
         // Sort targets by X position
         const sortedTargets = [...supportedPositions].sort((a, b) => a.pos.centerX - b.pos.centerX);
         
-        // Calculate end points for each target
-        const endpoints = sortedTargets.map((target, idx) => {
-          const endX = target.pos.centerX + (idx - (sortedTargets.length - 1) / 2) * 15;
+        // Find the lowest bottom among all targets
+        const maxBottom = Math.max(...sortedTargets.map(item => item.pos.bottom));
+        // Unique channel Y based on supporter index
+        const channelY = maxBottom + 20 + (currentSupporterIndex * 15);
+        
+        // Calculate end points for each target with unique offsets - never use center
+        const endpoints = sortedTargets.map((target) => {
+          // Calculate card width to determine offset from center
+          const cardWidth = target.pos.right - target.pos.left;
+          // Base offset from center - never use center (reserved for hierarchy lines)
+          const baseOffset = cardWidth * 0.25;
+          
+          // Calculate unique X offset based on this line's index among all lines to this target
+          const spreadWidth = 20;
+          const indexOffset = target.totalLinksToTarget > 1 
+            ? (target.indexAmongTargetLinks - (target.totalLinksToTarget - 1) / 2) * spreadWidth
+            : 0;
+          
+          // Determine which side to attach based on supporter position relative to target
+          const attachSide = personPos.centerX < target.pos.centerX ? -1 : 1;
+          
           return {
             id: target.id,
-            x: endX,
+            x: target.pos.centerX + (baseOffset * attachSide) + indexOffset,
             y: target.pos.bottom
           };
         });
@@ -473,7 +532,7 @@ export const Lines: React.FC<LinesProps> = ({ people, deptHeads = [], scale, set
           stroke: person.supportColor || '#3b82f6',
           strokeWidth: secondaryWidth,
           strokeDasharray: '4 4',
-          opacity: 0.7
+          opacity: 1
         });
       }
     });
@@ -572,7 +631,7 @@ export const Lines: React.FC<LinesProps> = ({ people, deptHeads = [], scale, set
         left: 0,
         width: '100%',
         height: '100%',
-        zIndex: -5
+        zIndex: 10
       }}
     >
       <g className="transition-opacity duration-150">
