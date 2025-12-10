@@ -512,27 +512,75 @@ export const Lines: React.FC<LinesProps> = ({ people, deptHeads = [], scale, set
           };
         });
 
-        // Main stem path: from support staff to the horizontal channel
-        let mainPath = `M ${startX} ${startY} L ${stemX} ${startY} L ${stemX} ${channelY}`;
+        const supportColor = person.supportColor || '#3b82f6';
 
-        // Horizontal spine connecting all drop points
+        // Create SEPARATE paths for each segment so dash pattern applies independently
+        
+        // Calculate spine bounds first
         const leftMostX = Math.min(...endpoints.map(e => e.x));
         const rightMostX = Math.max(...endpoints.map(e => e.x));
         
-        mainPath += ` L ${leftMostX} ${channelY} M ${leftMostX} ${channelY} L ${rightMostX} ${channelY}`;
-
-        // Add vertical drops to each target
-        endpoints.forEach(endpoint => {
-          mainPath += ` M ${endpoint.x} ${channelY} L ${endpoint.x} ${endpoint.y}`;
-        });
-
+        // 1. Stem from support staff to horizontal channel
+        const stemPath = `M ${startX} ${startY} L ${stemX} ${startY} L ${stemX} ${channelY}`;
         newPaths.push({
-          key: `support-${personId}-multi`,
-          d: mainPath,
-          stroke: person.supportColor || '#3b82f6',
+          key: `support-${personId}-stem`,
+          d: stemPath,
+          stroke: supportColor,
           strokeWidth: secondaryWidth,
           strokeDasharray: '4 4',
           opacity: 1
+        });
+
+        // 2. Connector from stem to spine (if stem is not already on the spine)
+        // The stem ends at stemX, but the spine runs from leftMostX to rightMostX
+        // We need to connect stemX to the nearest point on the spine
+        if (stemX < leftMostX) {
+          // Stem is to the left of the spine - connect to leftMostX
+          const connectorPath = `M ${stemX} ${channelY} L ${leftMostX} ${channelY}`;
+          newPaths.push({
+            key: `support-${personId}-connector`,
+            d: connectorPath,
+            stroke: supportColor,
+            strokeWidth: secondaryWidth,
+            strokeDasharray: '4 4',
+            opacity: 1
+          });
+        } else if (stemX > rightMostX) {
+          // Stem is to the right of the spine - connect to rightMostX
+          const connectorPath = `M ${stemX} ${channelY} L ${rightMostX} ${channelY}`;
+          newPaths.push({
+            key: `support-${personId}-connector`,
+            d: connectorPath,
+            stroke: supportColor,
+            strokeWidth: secondaryWidth,
+            strokeDasharray: '4 4',
+            opacity: 1
+          });
+        }
+        // If stem is between leftMostX and rightMostX, the spine already covers it
+
+        // 3. Horizontal spine connecting all drop points
+        const spinePath = `M ${leftMostX} ${channelY} L ${rightMostX} ${channelY}`;
+        newPaths.push({
+          key: `support-${personId}-spine`,
+          d: spinePath,
+          stroke: supportColor,
+          strokeWidth: secondaryWidth,
+          strokeDasharray: '4 4',
+          opacity: 1
+        });
+
+        // 3. Add SEPARATE vertical drops to each target
+        endpoints.forEach((endpoint, idx) => {
+          const dropPath = `M ${endpoint.x} ${channelY} L ${endpoint.x} ${endpoint.y}`;
+          newPaths.push({
+            key: `support-${personId}-drop-${endpoint.id}`,
+            d: dropPath,
+            stroke: supportColor,
+            strokeWidth: secondaryWidth,
+            strokeDasharray: '4 4',
+            opacity: 1
+          });
         });
       }
     });
@@ -631,7 +679,7 @@ export const Lines: React.FC<LinesProps> = ({ people, deptHeads = [], scale, set
         left: 0,
         width: '100%',
         height: '100%',
-        zIndex: 10
+        zIndex: 2
       }}
     >
       <g className="transition-opacity duration-150">

@@ -74,6 +74,7 @@ interface CardProps {
   deptColorOverride?: string;
   locationColorOverride?: string;
   cardSettings?: CardSettings;
+  renderLayer?: 'background' | 'content';
 }
 
 export const Card: React.FC<CardProps> = React.memo(({ 
@@ -90,7 +91,8 @@ export const Card: React.FC<CardProps> = React.memo(({
   onDelete,
   deptColorOverride,
   locationColorOverride,
-  cardSettings
+  cardSettings,
+  renderLayer = 'content'
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
@@ -264,6 +266,38 @@ export const Card: React.FC<CardProps> = React.memo(({
   const headerTextAlignClass = headerAlignment === 'left' ? 'text-left' : headerAlignment === 'right' ? 'text-right' : 'text-center';
   const bodyFlexDir = avatarPos === 'left' ? 'flex-row' : 'flex-row-reverse';
   const bodyContentAlign = bodyAlignment === 'left' ? 'items-start' : bodyAlignment === 'right' ? 'items-end' : 'items-center';
+
+  if (renderLayer === 'background') {
+    return (
+      <div
+        style={{ ...cardStyle, visibility: 'hidden', pointerEvents: 'none' }}
+        className={`
+          group relative flex flex-col overflow-hidden
+          transition-all duration-300 ease-out outline-none border-solid
+          ${paddingClass}
+        `}
+      >
+        {/* Render minimal content to maintain size */}
+        <div style={headerStyle} className={`${headerPaddingClass} ${headerClass}`}>
+           <h3 className={`font-bold ${nameSizeClass} truncate leading-tight px-4`}>
+             {person.name}
+           </h3>
+           {(cardSettings?.showTitle !== false) && (
+             <p className={`${titleSizeClass} truncate mt-1 px-4`}>
+               {person.title}
+             </p>
+           )}
+        </div>
+        <div className={`${paddingClass} flex ${bodyFlexDir} items-center gap-3`}>
+           <div className={`${avatarSizeClass} ${avatarShapeClass}`}></div>
+           <div className={`flex flex-col ${bodyContentAlign} flex-1 min-w-0 gap-1.5`}>
+              <div className="h-4 w-20"></div>
+              <div className="h-3 w-24"></div>
+           </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

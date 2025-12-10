@@ -2073,16 +2073,20 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
         >
           <div id="chart-content" className="inline-block min-w-max p-24 relative">
             
-            {/* Lines Layer - Rendered at z-index 1, below all content */}
+            {/* Layer 1: Team/Department Backgrounds (z-index 1) - rendered BELOW lines */}
+            {/* We achieve this by keeping backgrounds inside content but with negative z-index */}
+            
+            {/* Lines Layer - position absolute, z-index 2 */}
             <Lines people={people} deptHeads={deptHeads} scale={scale} settings={lineSettings} />
 
-            <div className="flex flex-col items-center gap-20 relative" style={{ zIndex: 50 }}>
+            {/* Content - no z-index to avoid creating stacking context */}
+            <div className="flex flex-col items-center gap-20 relative">
               
               {/* Level 1: Executive */}
               {rootPeople.length > 0 ? (
-                <div className="flex justify-center gap-16 shrink-0" style={{ zIndex: 50 }}>
+                <div className="flex justify-center gap-16 shrink-0">
                   {rootPeople.map(person => (
-                    <div key={person.id} className="card-node shrink-0" style={{ zIndex: 50 }}>
+                    <div key={person.id} className="card-node shrink-0">
                       <Card 
                         person={person} 
                         onClick={handleEditClick} 
@@ -2114,10 +2118,15 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
 
                   return (
                     <div key={deptName} className="flex flex-col items-center shrink-0">
-                       <div className="relative bg-white/40 border border-slate-200/60 rounded-[2rem] px-8 py-12 shadow-sm hover:shadow-md transition-shadow shrink-0" style={{ zIndex: 1 }}>
+                       <div className="relative rounded-[2rem] px-8 py-12 shrink-0">
+                          {/* Department Background - negative z-index so lines appear above */}
+                          <div 
+                            className="absolute inset-0 bg-white/40 border border-slate-200/60 rounded-[2rem] shadow-sm hover:shadow-md transition-shadow"
+                            style={{ zIndex: -1 }}
+                          ></div>
                           
                           {/* Department Badge - Clickable */}
-                          <div className="absolute -top-3 left-1/2 -translate-x-1/2" style={{ zIndex: 110 }}>
+                          <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                             <button
                               id={`dept-badge-${deptName}`}
                               onClick={(e) => {
@@ -2165,7 +2174,7 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
                             )}
                           </div>
 
-                          <div className="flex gap-16 shrink-0" style={{ zIndex: 60 }}>
+                          <div className="flex gap-16 shrink-0 relative">
                             {heads.map(head => (
                               <HierarchyTree 
                                 key={head.id}
@@ -2301,7 +2310,7 @@ const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDra
   return (
     <div className="flex flex-col items-center" style={{ marginTop: tierOffset }}>
       {/* The Manager Card */}
-      <div className="card-node shrink-0 mb-12 relative group/add" style={{ zIndex: 50 }}>
+      <div className="card-node shrink-0 mb-12 relative group/add">
         <Card 
           person={root} 
           onClick={onPersonClick} 
@@ -2446,24 +2455,24 @@ const TeamGroup: React.FC<{
 
   return (
     <div className="flex flex-col items-center relative">
-        {/* Background container - z-index 0 so lines (z-index 1) appear above it */}
+        {/* Background container - negative z-index so lines appear above it */}
         <div 
             className={`${colors.bg} border border-dashed ${colors.border} rounded-2xl absolute inset-0`}
-            style={{ zIndex: 0 }}
+            style={{ zIndex: -1 }}
         ></div>
-        {/* Team Label - high z-index to appear above lines */}
+        {/* Team Label - z-index above lines */}
         <div 
             className={`px-3 py-1 ${colors.label} border ${colors.labelBorder} rounded-md text-[10px] font-bold uppercase tracking-wide shadow-sm whitespace-nowrap`}
-            style={{ zIndex: 100, position: 'relative', marginTop: '-12px', marginBottom: '8px' }}
+            style={{ zIndex: 10, position: 'relative', marginTop: '-12px', marginBottom: '8px' }}
         >
             {teamName}
         </div>
         {/* Content container - z-index above lines */}
-        <div className="p-4 pt-0 relative flex flex-col gap-8 items-center" style={{ zIndex: 50 }}>
+        <div className="p-4 pt-0 relative flex flex-col gap-8 items-center" style={{ zIndex: 10 }}>
 
             {/* If root is included as head, render it first */}
             {includeRootAsHead && rootPerson && (
-              <div className="card-node shrink-0 relative group/add" style={{ zIndex: 50 }}>
+              <div className="card-node shrink-0 relative group/add" style={{ zIndex: 10 }}>
                 <Card 
                   person={rootPerson} 
                   onClick={onPersonClick} 
