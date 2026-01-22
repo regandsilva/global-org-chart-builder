@@ -358,7 +358,7 @@ export const Lines: React.FC<LinesProps> = ({ people, deptHeads = [], scale, set
               d: path,
               stroke: useRandomSecondaryColors ? getColorFromId(`${person.id}-${secMgrId}`) : secondaryBaseColor,
               strokeWidth: secondaryWidth,
-              strokeDasharray: secondaryStyle === 'dotted' ? '6 4' : secondaryStyle === 'dashed' ? '12 6' : undefined,
+              strokeDasharray: secondaryStyle === 'dotted' ? '0 8' : secondaryStyle === 'dashed' ? '10 6' : undefined,
               opacity: 1
             });
           }
@@ -476,7 +476,7 @@ export const Lines: React.FC<LinesProps> = ({ people, deptHeads = [], scale, set
           d: path,
           stroke: person.supportColor || '#3b82f6',
           strokeWidth: secondaryWidth,
-          strokeDasharray: '4 4',
+          strokeDasharray: secondaryStyle === 'dotted' ? '0 8' : secondaryStyle === 'dashed' ? '10 6' : undefined,
           opacity: 1
         });
       } else {
@@ -527,7 +527,7 @@ export const Lines: React.FC<LinesProps> = ({ people, deptHeads = [], scale, set
           d: stemPath,
           stroke: supportColor,
           strokeWidth: secondaryWidth,
-          strokeDasharray: '4 4',
+          strokeDasharray: secondaryStyle === 'dotted' ? '0 8' : secondaryStyle === 'dashed' ? '10 6' : undefined,
           opacity: 1
         });
 
@@ -542,7 +542,7 @@ export const Lines: React.FC<LinesProps> = ({ people, deptHeads = [], scale, set
             d: connectorPath,
             stroke: supportColor,
             strokeWidth: secondaryWidth,
-            strokeDasharray: '4 4',
+            strokeDasharray: secondaryStyle === 'dotted' ? '0 8' : secondaryStyle === 'dashed' ? '10 6' : undefined,
             opacity: 1
           });
         } else if (stemX > rightMostX) {
@@ -553,7 +553,7 @@ export const Lines: React.FC<LinesProps> = ({ people, deptHeads = [], scale, set
             d: connectorPath,
             stroke: supportColor,
             strokeWidth: secondaryWidth,
-            strokeDasharray: '4 4',
+            strokeDasharray: secondaryStyle === 'dotted' ? '0 8' : secondaryStyle === 'dashed' ? '10 6' : undefined,
             opacity: 1
           });
         }
@@ -566,7 +566,7 @@ export const Lines: React.FC<LinesProps> = ({ people, deptHeads = [], scale, set
           d: spinePath,
           stroke: supportColor,
           strokeWidth: secondaryWidth,
-          strokeDasharray: '4 4',
+          strokeDasharray: secondaryStyle === 'dotted' ? '0 8' : secondaryStyle === 'dashed' ? '10 6' : undefined,
           opacity: 1
         });
 
@@ -578,7 +578,7 @@ export const Lines: React.FC<LinesProps> = ({ people, deptHeads = [], scale, set
             d: dropPath,
             stroke: supportColor,
             strokeWidth: secondaryWidth,
-            strokeDasharray: '4 4',
+            strokeDasharray: secondaryStyle === 'dotted' ? '0 8' : secondaryStyle === 'dashed' ? '10 6' : undefined,
             opacity: 1
           });
         });
@@ -679,10 +679,17 @@ export const Lines: React.FC<LinesProps> = ({ people, deptHeads = [], scale, set
         left: 0,
         width: '100%',
         height: '100%',
-        zIndex: 2
+        zIndex: 2,
+        shapeRendering: 'geometricPrecision'
       }}
     >
-      <g className="transition-opacity duration-150">
+      <defs>
+        {/* Anti-aliasing filter for smoother lines */}
+        <filter id="smooth-lines" x="-10%" y="-10%" width="120%" height="120%">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="0.3" />
+        </filter>
+      </defs>
+      <g>
         {pathsData.map(({ key, d, stroke, strokeWidth, strokeDasharray, opacity }) => (
           <path
             key={key}
@@ -694,7 +701,7 @@ export const Lines: React.FC<LinesProps> = ({ people, deptHeads = [], scale, set
             strokeLinejoin="round"
             strokeDasharray={strokeDasharray}
             opacity={opacity}
-            className="transition-all duration-200 ease-out"
+            vectorEffect="non-scaling-stroke"
           />
         ))}
       </g>

@@ -1,9 +1,12 @@
-import React, { useMemo, useState, useRef } from 'react';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { Person, LineSettings, CardSettings } from '../types';
 import { Card } from './Card';
 import { Lines } from './Lines';
+import { SettingsPanel } from './settings';
 import { DEPARTMENTS, LOCATIONS } from '../constants';
-import { ZoomIn, ZoomOut, RotateCcw, Maximize, Search, X, Trash2, Users, Crown, Link, User, Building, MapPin, Mail, Phone, ChevronDown, Plus, Check, Settings, Sliders, Palette } from 'lucide-react';
+import { getLocationFlag, getPopularLocations, COUNTRIES, SPECIAL_LOCATIONS, getFlagImageUrl } from '../countries';
+import { LocationSelect } from './LocationSelect';
+import { ZoomIn, ZoomOut, RotateCcw, Maximize, Search, X, Trash2, Users, Crown, Link, User, Building, MapPin, Mail, Phone, ChevronDown, Plus, Check, Settings, Sliders, Palette, Globe } from 'lucide-react';
 
 interface OrgChartProps {
   people: Person[];
@@ -43,11 +46,13 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
   const [scale, setScale] = useState(0.8);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
+  const [isZooming, setIsZooming] = useState(false); // Track when actively zooming for smooth transitions
+  const zoomTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dragStart = useRef({ x: 0, y: 0 });
   
-  // Line Settings Modal
-  const [showLineSettings, setShowLineSettings] = useState(false);
-  const [showCardSettings, setShowCardSettings] = useState(false);
+  // Unified Settings Panel
+  const [showSettings, setShowSettings] = useState(false);
+  const [settingsDefaultTab, setSettingsDefaultTab] = useState<'cards' | 'lines'>('cards');
   
   // DnD State for People
   const [draggedPersonId, setDraggedPersonId] = useState<string | null>(null);
@@ -59,10 +64,18 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
   const [colorPickerDept, setColorPickerDept] = useState<string | null>(null);
 
   // --- CANVAS CONTROLS ---
+  // Helper to trigger zoom transition mode
+  const triggerZoomTransition = () => {
+    setIsZooming(true);
+    if (zoomTimeoutRef.current) clearTimeout(zoomTimeoutRef.current);
+    zoomTimeoutRef.current = setTimeout(() => setIsZooming(false), 350);
+  };
+
   const handleWheel = (e: React.WheelEvent) => {
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
       const delta = -e.deltaY * ZOOM_SENSITIVITY;
+      triggerZoomTransition();
       setScale(s => {
         const newScale = s + delta;
         // Clamp to limits
@@ -77,9 +90,9 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
   };
 
   // Zoom helper functions
-  const zoomIn = () => setScale(s => Math.min(s + ZOOM_STEP, MAX_ZOOM));
-  const zoomOut = () => setScale(s => Math.max(s - ZOOM_STEP, MIN_ZOOM));
-  const resetZoom = () => { setScale(0.8); setPosition({ x: 0, y: 0 }); };
+  const zoomIn = () => { triggerZoomTransition(); setScale(s => Math.min(s + ZOOM_STEP, MAX_ZOOM)); };
+  const zoomOut = () => { triggerZoomTransition(); setScale(s => Math.max(s - ZOOM_STEP, MIN_ZOOM)); };
+  const resetZoom = () => { triggerZoomTransition(); setScale(0.8); setPosition({ x: 0, y: 0 }); };
   const zoomPercent = Math.round(scale * 100);
 
   const handleFitToScreen = () => {
@@ -90,16 +103,13 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
     const contentRect = content.getBoundingClientRect();
     const containerRect = container.getBoundingClientRect();
 
-    // Reset scale first to get true dimensions
-    // Actually, we can just calculate based on current scale
-    // But simpler to just center it.
-    
     // Fit to screen with reasonable scale
     const fitScale = Math.min(
       (containerRect.width * 0.9) / (contentRect.width / scale),
       (containerRect.height * 0.9) / (contentRect.height / scale),
       MAX_ZOOM
     );
+    triggerZoomTransition();
     setScale(Math.max(MIN_ZOOM, Math.min(fitScale, 0.8)));
     setPosition({ x: 0, y: 0 });
   };
@@ -144,6 +154,27 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
     }
     return undefined;
   };
+
+  // Cleanup zoom timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (zoomTimeoutRef.current) clearTimeout(zoomTimeoutRef.current);
+    };
+  }, []);
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+, or Cmd+, to open settings
+      if ((e.ctrlKey || e.metaKey) && e.key === ',') {
+        e.preventDefault();
+        setShowSettings(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // --- DATA PREP ---
   // Root people (executives)
@@ -639,16 +670,12 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
                         </div>
                       ) : (
                         <div className="flex items-center gap-1 relative z-10">
-                          <div className="relative flex-1">
-                            <select 
-                              className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none bg-white appearance-none cursor-pointer transition-all"
-                              value={editingPerson.location || ''}
-                              onChange={e => setEditingPerson({...editingPerson, location: e.target.value})}
-                            >
-                              {allLocations.map(l => <option key={l} value={l}>{l}</option>)}
-                            </select>
-                            <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                          </div>
+                          <LocationSelect
+                            value={editingPerson.location || ''}
+                            onChange={(loc) => setEditingPerson({...editingPerson, location: loc})}
+                            customLocations={allLocations}
+                            className="flex-1"
+                          />
                           {onDeleteLocation && allLocations.length > 1 && (
                             <button 
                               type="button"
@@ -1001,860 +1028,21 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
         </div>
       )}
 
-      {/* Card Settings Modal */}
-      {showCardSettings && cardSettings && onUpdateCardSettings && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setShowCardSettings(false)}>
-          <div 
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in duration-200"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-gradient-to-r from-slate-800 to-slate-700 shrink-0">
-              <h3 className="font-bold text-white flex items-center gap-2">
-                <Palette size={18} /> Card Settings
-              </h3>
-              <button onClick={() => setShowCardSettings(false)} className="p-2 hover:bg-white/10 rounded-full text-white/70 hover:text-white transition-colors">
-                <X size={20} />
-              </button>
-            </div>
-            
-            <div className="flex flex-col md:flex-row-reverse flex-1 overflow-hidden">
-              {/* Live Preview - Sticky on Desktop */}
-              <div className="w-full md:w-[400px] bg-slate-50 p-8 flex flex-col items-center justify-center border-b md:border-b-0 md:border-l border-slate-200 shrink-0 overflow-y-auto">
-                <p className="text-xs font-medium text-slate-500 mb-8 uppercase tracking-wider">Live Preview</p>
-                <div 
-                  className={`
-                    relative flex flex-col border overflow-hidden bg-white transition-all
-                    ${cardSettings.useDeptColorForBorder ? 'border-blue-200' : ''}
-                    ${cardSettings.shadow === 'none' ? '' : cardSettings.shadow === 'sm' ? 'shadow-sm' : cardSettings.shadow === 'md' ? 'shadow-md' : cardSettings.shadow === 'lg' ? 'shadow-lg' : 'shadow-xl'}
-                  `}
-                  style={{
-                    width: `${Math.min(cardSettings.width, 260)}px`,
-                    borderRadius: `${cardSettings.borderRadius}px`,
-                    borderWidth: `${cardSettings.borderWidth || 1}px`,
-                    borderColor: cardSettings.useDeptColorForBorder ? undefined : (cardSettings.borderColor || '#e2e8f0'),
-                    backgroundColor: cardSettings.cardBgColor,
-                    fontFamily: cardSettings.fontFamily === 'serif' ? 'Georgia, serif' : cardSettings.fontFamily === 'mono' ? 'ui-monospace, monospace' : 'inherit'
-                  }}
-                >
-                  {/* Preview Header */}
-                  <div 
-                    className={`relative ${cardSettings.padding === 'compact' ? 'p-2' : cardSettings.padding === 'spacious' ? 'p-5' : 'p-4'} ${cardSettings.useDeptColorForHeader ? 'bg-blue-600 text-white' : ''} ${cardSettings.headerAlignment === 'left' ? 'text-left' : cardSettings.headerAlignment === 'right' ? 'text-right' : 'text-center'} ${cardSettings.showGradientHeader && !cardSettings.useDeptColorForHeader ? 'bg-gradient-to-r from-slate-800 to-slate-600' : ''}`}
-                    style={{
-                      backgroundColor: cardSettings.useDeptColorForHeader ? undefined : cardSettings.headerBgColor,
-                      color: cardSettings.useDeptColorForHeader ? undefined : cardSettings.headerTextColor,
-                    }}
-                  >
-                    <h3 className={`font-bold truncate leading-tight ${cardSettings.nameSize === 'small' ? 'text-sm' : cardSettings.nameSize === 'large' ? 'text-xl' : 'text-lg'}`}>
-                      John Smith
-                    </h3>
-                    {cardSettings.showTitle && (
-                      <p className={`truncate mt-1 opacity-80 ${cardSettings.titleSize === 'small' ? 'text-xs' : cardSettings.titleSize === 'large' ? 'text-base' : 'text-sm'}`}>Software Engineer</p>
-                    )}
-                  </div>
-                  
-                  {/* Preview Body - New side-by-side layout */}
-                  <div className={`${cardSettings.padding === 'compact' ? 'p-2' : cardSettings.padding === 'spacious' ? 'p-5' : 'p-4'} flex ${cardSettings.avatarPosition === 'left' ? 'flex-row' : 'flex-row-reverse'} items-center gap-3`} style={{ color: cardSettings.cardTextColor }}>
-                    {cardSettings.showAvatar && (
-                      <div className={`${cardSettings.avatarShape === 'square' ? 'rounded-none' : cardSettings.avatarShape === 'rounded' ? 'rounded-lg' : 'rounded-full'} flex items-center justify-center font-bold shrink-0 bg-blue-100 text-blue-600 shadow-sm border-2 border-white ${cardSettings.avatarSize === 'small' ? 'w-8 h-8 text-xs' : cardSettings.avatarSize === 'large' ? 'w-14 h-14 text-base' : 'w-12 h-12 text-sm'}`}>
-                        JS
-                      </div>
-                    )}
-                    <div className={`flex flex-col ${cardSettings.bodyAlignment === 'left' ? 'items-start' : cardSettings.bodyAlignment === 'right' ? 'items-end' : 'items-center'} flex-1 min-w-0 gap-1.5`}>
-                      {cardSettings.showDepartment && (
-                        <div className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-semibold truncate max-w-full ${cardSettings.useDeptColorForBadge ? 'bg-blue-100 text-blue-700 border border-blue-200' : 'bg-slate-100 text-slate-500 border border-slate-200'}`}>
-                          Engineering
-                        </div>
-                      )}
-                      {cardSettings.showLocation && (
-                        <div className="flex items-center gap-1 text-xs text-slate-500 truncate max-w-full">
-                          <MapPin size={10} className="text-slate-400 shrink-0" />
-                          <span>London, UK</span>
-                        </div>
-                      )}
-                      {cardSettings.showEmail && (
-                        <div className="flex items-center gap-1 text-xs text-slate-500 truncate max-w-full">
-                          <Mail size={10} className="text-slate-400 shrink-0" />
-                          <span>john@example.com</span>
-                        </div>
-                      )}
-                      {cardSettings.showPhone && (
-                        <div className="flex items-center gap-1 text-xs text-slate-500 truncate max-w-full">
-                          <Phone size={10} className="text-slate-400 shrink-0" />
-                          <span>+1 234 567 890</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Settings Panel - Scrollable */}
-              <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                  
-                {/* Quick Presets */}
-                <div className="space-y-3">
-                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Quick Presets</h4>
-                  <div className="grid grid-cols-4 gap-2">
-                    <button 
-                      onClick={() => onUpdateCardSettings({
-                        ...cardSettings,
-                        headerBgColor: '#1e293b', headerTextColor: '#ffffff', cardBgColor: '#ffffff', cardTextColor: '#1e293b',
-                        borderRadius: 12, shadow: 'md', useDeptColorForHeader: false, useDeptColorForBadge: true
-                      })}
-                      className="p-2 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-all text-center"
-                    >
-                      <div className="w-full h-5 rounded bg-slate-800 mb-1"></div>
-                      <span className="text-[10px] font-medium text-slate-600">Default</span>
-                    </button>
-                    <button 
-                      onClick={() => onUpdateCardSettings({
-                        ...cardSettings,
-                        headerBgColor: '#ffffff', headerTextColor: '#1e293b', cardBgColor: '#ffffff', cardTextColor: '#1e293b',
-                        borderRadius: 8, shadow: 'sm', useDeptColorForHeader: false, useDeptColorForBadge: true
-                      })}
-                      className="p-2 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-all text-center"
-                    >
-                      <div className="w-full h-5 rounded bg-white border border-slate-200 mb-1"></div>
-                      <span className="text-[10px] font-medium text-slate-600">Minimal</span>
-                    </button>
-                    <button 
-                      onClick={() => onUpdateCardSettings({
-                        ...cardSettings,
-                        useDeptColorForHeader: true, useDeptColorForBadge: true, useDeptColorForBorder: true,
-                        borderRadius: 16, shadow: 'lg'
-                      })}
-                      className="p-2 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-all text-center"
-                    >
-                      <div className="w-full h-5 rounded bg-gradient-to-r from-blue-500 to-purple-500 mb-1"></div>
-                      <span className="text-[10px] font-medium text-slate-600">Colorful</span>
-                    </button>
-                    <button 
-                      onClick={() => onUpdateCardSettings({
-                        ...cardSettings,
-                        headerBgColor: '#18181b', headerTextColor: '#fafafa', cardBgColor: '#27272a', cardTextColor: '#fafafa',
-                        borderRadius: 4, shadow: 'xl', useDeptColorForHeader: false, useDeptColorForBadge: false
-                      })}
-                      className="p-2 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-all text-center"
-                    >
-                      <div className="w-full h-5 rounded bg-zinc-800 mb-1"></div>
-                      <span className="text-[10px] font-medium text-slate-600">Dark</span>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="h-px bg-slate-100" />
-
-                {/* Colors Section */}
-                <div className="space-y-3">
-                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Colors</h4>
-                    
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <label className="text-xs font-medium text-slate-600">Header Background</label>
-                        <div className="flex items-center gap-2">
-                          <input 
-                            type="color" 
-                            value={cardSettings.headerBgColor}
-                            onChange={e => onUpdateCardSettings({...cardSettings, headerBgColor: e.target.value})}
-                            className="w-10 h-10 rounded-lg cursor-pointer border border-slate-200 p-1"
-                            disabled={cardSettings.useDeptColorForHeader}
-                          />
-                          <input 
-                            type="text"
-                            value={cardSettings.headerBgColor}
-                            onChange={e => onUpdateCardSettings({...cardSettings, headerBgColor: e.target.value})}
-                            className="flex-1 px-2 py-1.5 text-xs border border-slate-200 rounded-lg font-mono"
-                            disabled={cardSettings.useDeptColorForHeader}
-                          />
-                        </div>
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <label className="text-xs font-medium text-slate-600">Header Text</label>
-                        <div className="flex items-center gap-2">
-                          <input 
-                            type="color" 
-                            value={cardSettings.headerTextColor}
-                            onChange={e => onUpdateCardSettings({...cardSettings, headerTextColor: e.target.value})}
-                            className="w-10 h-10 rounded-lg cursor-pointer border border-slate-200 p-1"
-                          />
-                          <input 
-                            type="text"
-                            value={cardSettings.headerTextColor}
-                            onChange={e => onUpdateCardSettings({...cardSettings, headerTextColor: e.target.value})}
-                            className="flex-1 px-2 py-1.5 text-xs border border-slate-200 rounded-lg font-mono"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-xs font-medium text-slate-600">Card Background</label>
-                        <div className="flex items-center gap-2">
-                          <input 
-                            type="color" 
-                            value={cardSettings.cardBgColor}
-                            onChange={e => onUpdateCardSettings({...cardSettings, cardBgColor: e.target.value})}
-                            className="w-10 h-10 rounded-lg cursor-pointer border border-slate-200 p-1"
-                          />
-                          <input 
-                            type="text"
-                            value={cardSettings.cardBgColor}
-                            onChange={e => onUpdateCardSettings({...cardSettings, cardBgColor: e.target.value})}
-                            className="flex-1 px-2 py-1.5 text-xs border border-slate-200 rounded-lg font-mono"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-xs font-medium text-slate-600">Card Text</label>
-                        <div className="flex items-center gap-2">
-                          <input 
-                            type="color" 
-                            value={cardSettings.cardTextColor}
-                            onChange={e => onUpdateCardSettings({...cardSettings, cardTextColor: e.target.value})}
-                            className="w-10 h-10 rounded-lg cursor-pointer border border-slate-200 p-1"
-                          />
-                          <input 
-                            type="text"
-                            value={cardSettings.cardTextColor}
-                            onChange={e => onUpdateCardSettings({...cardSettings, cardTextColor: e.target.value})}
-                            className="flex-1 px-2 py-1.5 text-xs border border-slate-200 rounded-lg font-mono"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-xs font-medium text-slate-600">Border Color</label>
-                        <div className="flex items-center gap-2">
-                          <input 
-                            type="color" 
-                            value={cardSettings.borderColor || '#e2e8f0'}
-                            onChange={e => onUpdateCardSettings({...cardSettings, borderColor: e.target.value})}
-                            className="w-10 h-10 rounded-lg cursor-pointer border border-slate-200 p-1"
-                            disabled={cardSettings.useDeptColorForBorder}
-                          />
-                          <input 
-                            type="text"
-                            value={cardSettings.borderColor || '#e2e8f0'}
-                            onChange={e => onUpdateCardSettings({...cardSettings, borderColor: e.target.value})}
-                            className="flex-1 px-2 py-1.5 text-xs border border-slate-200 rounded-lg font-mono"
-                            disabled={cardSettings.useDeptColorForBorder}
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Department Color Toggles */}
-                    <div className="bg-slate-50 rounded-lg p-3 space-y-2">
-                      <p className="text-xs font-medium text-slate-500 mb-2">Department Color Overrides</p>
-                      <label className="flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-white transition-colors">
-                        <input 
-                          type="checkbox"
-                          checked={cardSettings.useDeptColorForHeader}
-                          onChange={e => onUpdateCardSettings({...cardSettings, useDeptColorForHeader: e.target.checked})}
-                          className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <div>
-                          <span className="text-xs font-medium text-slate-700">Use Department Color for Header</span>
-                          <p className="text-[10px] text-slate-400">Header will match department theme color</p>
-                        </div>
-                      </label>
-
-                      <label className="flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-white transition-colors">
-                        <input 
-                          type="checkbox"
-                          checked={cardSettings.useDeptColorForBadge}
-                          onChange={e => onUpdateCardSettings({...cardSettings, useDeptColorForBadge: e.target.checked})}
-                          className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <div>
-                          <span className="text-xs font-medium text-slate-700">Use Department Color for Badge</span>
-                          <p className="text-[10px] text-slate-400">Department badge will be colorful</p>
-                        </div>
-                      </label>
-
-                      <label className="flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-white transition-colors">
-                        <input 
-                          type="checkbox"
-                          checked={cardSettings.useDeptColorForBorder}
-                          onChange={e => onUpdateCardSettings({...cardSettings, useDeptColorForBorder: e.target.checked})}
-                          className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <div>
-                          <span className="text-xs font-medium text-slate-700">Use Department Color for Border</span>
-                          <p className="text-[10px] text-slate-400">Subtle colored border around card</p>
-                        </div>
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className="h-px bg-slate-100" />
-
-                  {/* Layout & Dimensions */}
-                  <div className="space-y-3">
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Layout & Dimensions</h4>
-                    
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <label className="text-xs font-medium text-slate-600">Card Width</label>
-                        <div className="flex items-center gap-2">
-                          <input 
-                            type="range" 
-                            min="200" 
-                            max="400" 
-                            step="8"
-                            value={cardSettings.width}
-                            onChange={e => onUpdateCardSettings({...cardSettings, width: parseInt(e.target.value)})}
-                            className="flex-1 accent-blue-600"
-                          />
-                          <span className="text-xs font-mono text-slate-500 w-12 text-right">{cardSettings.width}px</span>
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-xs font-medium text-slate-600">Corner Radius</label>
-                        <div className="flex items-center gap-2">
-                          <input 
-                            type="range" 
-                            min="0" 
-                            max="24" 
-                            step="2"
-                            value={cardSettings.borderRadius}
-                            onChange={e => onUpdateCardSettings({...cardSettings, borderRadius: parseInt(e.target.value)})}
-                            className="flex-1 accent-blue-600"
-                          />
-                          <span className="text-xs font-mono text-slate-500 w-12 text-right">{cardSettings.borderRadius}px</span>
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-xs font-medium text-slate-600">Border Width</label>
-                        <div className="flex items-center gap-2">
-                          <input 
-                            type="range" 
-                            min="0" 
-                            max="8" 
-                            step="1"
-                            value={cardSettings.borderWidth || 1}
-                            onChange={e => onUpdateCardSettings({...cardSettings, borderWidth: parseInt(e.target.value)})}
-                            className="flex-1 accent-blue-600"
-                          />
-                          <span className="text-xs font-mono text-slate-500 w-12 text-right">{cardSettings.borderWidth || 1}px</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-4">
-                      <div className="space-y-2">
-                        <label className="text-xs font-medium text-slate-600">Shadow</label>
-                        <select 
-                          value={cardSettings.shadow}
-                          onChange={e => onUpdateCardSettings({...cardSettings, shadow: e.target.value as any})}
-                          className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                        >
-                          <option value="none">None</option>
-                          <option value="sm">Small</option>
-                          <option value="md">Medium</option>
-                          <option value="lg">Large</option>
-                          <option value="xl">Extra Large</option>
-                        </select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-xs font-medium text-slate-600">Padding</label>
-                        <select 
-                          value={cardSettings.padding}
-                          onChange={e => onUpdateCardSettings({...cardSettings, padding: e.target.value as any})}
-                          className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                        >
-                          <option value="compact">Compact</option>
-                          <option value="normal">Normal</option>
-                          <option value="spacious">Spacious</option>
-                        </select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-xs font-medium text-slate-600">Font Style</label>
-                        <select 
-                          value={cardSettings.fontFamily}
-                          onChange={e => onUpdateCardSettings({...cardSettings, fontFamily: e.target.value as any})}
-                          className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                        >
-                          <option value="default">Default (Sans)</option>
-                          <option value="serif">Serif</option>
-                          <option value="mono">Monospace</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-4">
-                      <div className="space-y-2">
-                        <label className="text-xs font-medium text-slate-600">Avatar Size</label>
-                        <select 
-                          value={cardSettings.avatarSize}
-                          onChange={e => onUpdateCardSettings({...cardSettings, avatarSize: e.target.value as any})}
-                          className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                        >
-                          <option value="small">Small</option>
-                          <option value="medium">Medium</option>
-                          <option value="large">Large</option>
-                        </select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-xs font-medium text-slate-600">Avatar Shape</label>
-                        <select 
-                          value={cardSettings.avatarShape || 'circle'}
-                          onChange={e => onUpdateCardSettings({...cardSettings, avatarShape: e.target.value as any})}
-                          className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                        >
-                          <option value="circle">Circle</option>
-                          <option value="rounded">Rounded</option>
-                          <option value="square">Square</option>
-                        </select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-xs font-medium text-slate-600">Avatar Position</label>
-                        <select 
-                          value={cardSettings.avatarPosition}
-                          onChange={e => onUpdateCardSettings({...cardSettings, avatarPosition: e.target.value as any})}
-                          className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                        >
-                          <option value="left">Left Side</option>
-                          <option value="right">Right Side</option>
-                        </select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-xs font-medium text-slate-600">Header Alignment</label>
-                        <select 
-                          value={cardSettings.headerAlignment || 'center'}
-                          onChange={e => onUpdateCardSettings({...cardSettings, headerAlignment: e.target.value as any})}
-                          className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                        >
-                          <option value="left">Left</option>
-                          <option value="center">Center</option>
-                          <option value="right">Right</option>
-                        </select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-xs font-medium text-slate-600">Body Alignment</label>
-                        <select 
-                          value={cardSettings.bodyAlignment || 'left'}
-                          onChange={e => onUpdateCardSettings({...cardSettings, bodyAlignment: e.target.value as any})}
-                          className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                        >
-                          <option value="left">Left</option>
-                          <option value="center">Center</option>
-                          <option value="right">Right</option>
-                        </select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-xs font-medium text-slate-600">Name Size</label>
-                        <select 
-                          value={cardSettings.nameSize}
-                          onChange={e => onUpdateCardSettings({...cardSettings, nameSize: e.target.value as any})}
-                          className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                        >
-                          <option value="small">Small</option>
-                          <option value="medium">Medium</option>
-                          <option value="large">Large</option>
-                        </select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-xs font-medium text-slate-600">Title Size</label>
-                        <select 
-                          value={cardSettings.titleSize || 'small'}
-                          onChange={e => onUpdateCardSettings({...cardSettings, titleSize: e.target.value as any})}
-                          className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                        >
-                          <option value="small">Small</option>
-                          <option value="medium">Medium</option>
-                          <option value="large">Large</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="h-px bg-slate-100" />
-
-                  {/* Effects & Interactions */}
-                  <div className="space-y-3">
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Effects & Interactions</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <label className="text-xs font-medium text-slate-600">Hover Effect</label>
-                        <select 
-                          value={cardSettings.hoverEffect || 'lift'}
-                          onChange={e => onUpdateCardSettings({...cardSettings, hoverEffect: e.target.value as any})}
-                          className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                        >
-                          <option value="lift">Lift</option>
-                          <option value="glow">Glow</option>
-                          <option value="scale">Scale</option>
-                          <option value="none">None</option>
-                        </select>
-                      </div>
-
-                      <div className="flex items-center pt-6">
-                        <label className="flex items-center gap-3 cursor-pointer">
-                          <input 
-                            type="checkbox"
-                            checked={cardSettings.showGradientHeader || false}
-                            onChange={e => onUpdateCardSettings({...cardSettings, showGradientHeader: e.target.checked})}
-                            className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                          />
-                          <span className="text-xs font-medium text-slate-700">Gradient Header</span>
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="h-px bg-slate-100" />
-
-                  {/* Visibility */}
-                  <div className="space-y-3">
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Show / Hide Elements</h4>
-                    
-                    <div className="grid grid-cols-2 gap-3">
-                      <label className="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50/50 transition-all">
-                        <input 
-                          type="checkbox"
-                          checked={cardSettings.showAvatar}
-                          onChange={e => onUpdateCardSettings({...cardSettings, showAvatar: e.target.checked})}
-                          className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="text-xs font-medium text-slate-700">Avatar / Photo</span>
-                      </label>
-
-                      <label className="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50/50 transition-all">
-                        <input 
-                          type="checkbox"
-                          checked={cardSettings.showTitle}
-                          onChange={e => onUpdateCardSettings({...cardSettings, showTitle: e.target.checked})}
-                          className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="text-xs font-medium text-slate-700">Job Title</span>
-                      </label>
-
-                      <label className="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50/50 transition-all">
-                        <input 
-                          type="checkbox"
-                          checked={cardSettings.showDepartment}
-                          onChange={e => onUpdateCardSettings({...cardSettings, showDepartment: e.target.checked})}
-                          className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="text-xs font-medium text-slate-700">Department Badge</span>
-                      </label>
-
-                      <label className="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50/50 transition-all">
-                        <input 
-                          type="checkbox"
-                          checked={cardSettings.showLocation}
-                          onChange={e => onUpdateCardSettings({...cardSettings, showLocation: e.target.checked})}
-                          className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="text-xs font-medium text-slate-700">Location</span>
-                      </label>
-
-                      <label className="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50/50 transition-all">
-                        <input 
-                          type="checkbox"
-                          checked={cardSettings.showEmail || false}
-                          onChange={e => onUpdateCardSettings({...cardSettings, showEmail: e.target.checked})}
-                          className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="text-xs font-medium text-slate-700">Email Address</span>
-                      </label>
-
-                      <label className="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50/50 transition-all">
-                        <input 
-                          type="checkbox"
-                          checked={cardSettings.showPhone || false}
-                          onChange={e => onUpdateCardSettings({...cardSettings, showPhone: e.target.checked})}
-                          className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="text-xs font-medium text-slate-700">Phone Number</span>
-                      </label>
-
-                      <label className="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50/50 transition-all">
-                        <input 
-                          type="checkbox"
-                          checked={cardSettings.showSecondaryManager !== false}
-                          onChange={e => onUpdateCardSettings({...cardSettings, showSecondaryManager: e.target.checked})}
-                          className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="text-xs font-medium text-slate-700">Secondary Manager</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className="h-px bg-slate-100" />
-
-                  {/* Location Colors */}
-                  <div className="space-y-3">
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Location Colors</h4>
-                    
-                    <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
-                      {allLocations.map(loc => (
-                        <div key={loc} className="flex flex-col gap-2 p-3 bg-slate-50 rounded-lg border border-slate-100 hover:bg-slate-100 transition-colors">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-medium text-slate-700">{loc}</span>
-                            <div className="flex items-center gap-2">
-                              <input 
-                                type="color" 
-                                value={locationColors[loc] || '#64748b'}
-                                onChange={e => onSetLocationColor?.(loc, e.target.value)}
-                                className="w-6 h-6 rounded cursor-pointer border border-slate-200 p-0.5"
-                              />
-                              <button 
-                                onClick={() => onSetLocationColor?.(loc, '')}
-                                className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
-                                title="Reset to default"
-                              >
-                                <RotateCcw size={12} />
-                              </button>
-                            </div>
-                          </div>
-                          
-                          {/* Quick Color Palette */}
-                          <div className="flex flex-wrap gap-1.5">
-                            {[
-                              '#64748b', // Slate
-                              '#ef4444', // Red
-                              '#f97316', // Orange
-                              '#f59e0b', // Amber
-                              '#84cc16', // Lime
-                              '#10b981', // Emerald
-                              '#06b6d4', // Cyan
-                              '#3b82f6', // Blue
-                              '#6366f1', // Indigo
-                              '#8b5cf6', // Violet
-                              '#d946ef', // Fuchsia
-                              '#f43f5e'  // Rose
-                            ].map(color => (
-                              <button
-                                key={color}
-                                onClick={() => onSetLocationColor?.(loc, color)}
-                                className={`w-5 h-5 rounded-full border border-slate-200 hover:scale-110 transition-transform ${locationColors[loc] === color ? 'ring-2 ring-offset-1 ring-slate-400' : ''}`}
-                                style={{ backgroundColor: color }}
-                                title={color}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                      {allLocations.length === 0 && (
-                        <div className="text-center py-4 text-slate-400 text-xs">
-                          No locations found.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                </div>
-              </div>
-            
-            <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
-              <button 
-                onClick={() => {
-                  if (confirm('Reset all card settings to default values?')) {
-                    onUpdateCardSettings({
-                      headerBgColor: '#1e293b',
-                      headerTextColor: '#ffffff',
-                      cardBgColor: '#ffffff',
-                      cardTextColor: '#1e293b',
-                      borderRadius: 12,
-                      shadow: 'md',
-                      padding: 'normal',
-                      showAvatar: true,
-                      showDepartment: true,
-                      showLocation: true,
-                      showTitle: true,
-                      width: 288,
-                      useDeptColorForHeader: false,
-                      useDeptColorForBadge: true,
-                      useDeptColorForBorder: false,
-                      avatarSize: 'medium',
-                      avatarPosition: 'left',
-                      avatarShape: 'circle',
-                      headerAlignment: 'center',
-                      bodyAlignment: 'left',
-                      nameSize: 'medium',
-                      titleSize: 'small',
-                      fontFamily: 'default',
-                      borderColor: '#e2e8f0',
-                      borderWidth: 1,
-                      showEmail: false,
-                      showPhone: false,
-                      showSecondaryManager: true,
-                      hoverEffect: 'lift',
-                      showGradientHeader: false
-                    });
-                  }
-                }}
-                className="px-4 py-2 text-red-600 hover:bg-red-50 border border-red-200 rounded-lg text-xs font-medium transition-colors flex items-center gap-2"
-              >
-                <RotateCcw size={12} /> Reset
-              </button>
-              <button 
-                onClick={() => setShowCardSettings(false)}
-                className="px-5 py-2 bg-slate-800 text-white rounded-lg text-xs font-medium hover:bg-slate-700 transition-colors"
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Line Settings Modal */}
-      {showLineSettings && lineSettings && onUpdateLineSettings && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setShowLineSettings(false)}>
-          <div 
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-              <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                <Sliders size={18} /> Line Customization
-              </h3>
-              <button onClick={() => setShowLineSettings(false)} className="p-2 hover:bg-slate-200 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
-                <X size={20} />
-              </button>
-            </div>
-            
-            <div className="p-6 space-y-6">
-              {/* Primary Lines */}
-              <div className="space-y-4">
-                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Primary Lines (Solid)</h4>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-xs font-medium text-slate-600">Color</label>
-                    <div className="flex items-center gap-2">
-                      <input 
-                        type="color" 
-                        value={lineSettings.primaryColor}
-                        onChange={e => onUpdateLineSettings({...lineSettings, primaryColor: e.target.value})}
-                        className="w-8 h-8 rounded cursor-pointer border-0 p-0"
-                      />
-                      <span className="text-xs text-slate-500 font-mono">{lineSettings.primaryColor}</span>
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <label className="text-xs font-medium text-slate-600">Thickness: {lineSettings.primaryWidth}px</label>
-                    <input 
-                      type="range" 
-                      min="1" 
-                      max="10" 
-                      step="0.5"
-                      value={lineSettings.primaryWidth}
-                      onChange={e => onUpdateLineSettings({...lineSettings, primaryWidth: parseFloat(e.target.value)})}
-                      className="w-full accent-blue-600"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="h-px bg-slate-100" />
-
-              {/* Secondary Lines */}
-              <div className="space-y-4">
-                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Secondary Lines (Dotted)</h4>
-                
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-medium text-slate-600">Use Random Colors</label>
-                    <div 
-                      className={`w-10 h-5 rounded-full p-1 cursor-pointer transition-colors ${lineSettings.useRandomSecondaryColors ? 'bg-blue-600' : 'bg-slate-300'}`}
-                      onClick={() => onUpdateLineSettings({...lineSettings, useRandomSecondaryColors: !lineSettings.useRandomSecondaryColors})}
-                    >
-                      <div className={`w-3 h-3 bg-white rounded-full shadow-sm transition-transform ${lineSettings.useRandomSecondaryColors ? 'translate-x-5' : 'translate-x-0'}`} />
-                    </div>
-                  </div>
-
-                  {!lineSettings.useRandomSecondaryColors && (
-                    <div className="space-y-2">
-                      <label className="text-xs font-medium text-slate-600">Base Color</label>
-                      <div className="flex items-center gap-2">
-                        <input 
-                          type="color" 
-                          value={lineSettings.secondaryColor}
-                          onChange={e => onUpdateLineSettings({...lineSettings, secondaryColor: e.target.value})}
-                          className="w-8 h-8 rounded cursor-pointer border-0 p-0"
-                        />
-                        <span className="text-xs text-slate-500 font-mono">{lineSettings.secondaryColor}</span>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-xs font-medium text-slate-600">Style</label>
-                      <select 
-                        value={lineSettings.secondaryStyle}
-                        onChange={e => onUpdateLineSettings({...lineSettings, secondaryStyle: e.target.value as any})}
-                        className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="dotted">Dotted</option>
-                        <option value="dashed">Dashed</option>
-                        <option value="solid">Solid</option>
-                      </select>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <label className="text-xs font-medium text-slate-600">Thickness: {lineSettings.secondaryWidth}px</label>
-                      <input 
-                        type="range" 
-                        min="1" 
-                        max="10" 
-                        step="0.5"
-                        value={lineSettings.secondaryWidth}
-                        onChange={e => onUpdateLineSettings({...lineSettings, secondaryWidth: parseFloat(e.target.value)})}
-                        className="w-full accent-blue-600"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="h-px bg-slate-100" />
-
-              {/* General */}
-              <div className="space-y-4">
-                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">General</h4>
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-slate-600">Corner Radius: {lineSettings.cornerRadius}px</label>
-                  <input 
-                    type="range" 
-                    min="0" 
-                    max="30" 
-                    step="1"
-                    value={lineSettings.cornerRadius}
-                    onChange={e => onUpdateLineSettings({...lineSettings, cornerRadius: parseInt(e.target.value)})}
-                    className="w-full accent-blue-600"
-                  />
-                </div>
-              </div>
-
-            </div>
-            
-            <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
-              <button 
-                onClick={() => setShowLineSettings(false)}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Unified Settings Panel */}
+      {cardSettings && onUpdateCardSettings && lineSettings && onUpdateLineSettings && (
+        <SettingsPanel
+          isOpen={showSettings}
+          onClose={() => setShowSettings(false)}
+          cardSettings={cardSettings}
+          onUpdateCardSettings={onUpdateCardSettings}
+          lineSettings={lineSettings}
+          onUpdateLineSettings={onUpdateLineSettings}
+          locationColors={locationColors}
+          onSetLocationColor={onSetLocationColor || (() => {})}
+          locations={allLocations}
+          previewPerson={people[0]}
+          defaultTab={settingsDefaultTab}
+        />
       )}
 
       {/* Add Person Modal */}
@@ -1943,16 +1131,11 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
                     <MapPin size={10} /> Location
                   </label>
-                  <div className="relative">
-                    <select 
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white appearance-none cursor-pointer transition-all"
-                      value={newPerson.location || ''}
-                      onChange={e => setNewPerson({...newPerson, location: e.target.value})}
-                    >
-                      {allLocations.map(l => <option key={l} value={l}>{l}</option>)}
-                    </select>
-                    <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                  </div>
+                  <LocationSelect
+                    value={newPerson.location || ''}
+                    onChange={(loc) => setNewPerson({...newPerson, location: loc})}
+                    customLocations={allLocations}
+                  />
                 </div>
               </div>
 
@@ -2014,16 +1197,16 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
       {/* Floating Controls */}
       <div className="absolute bottom-8 right-8 z-50 flex flex-col gap-2 bg-white p-2 rounded-xl shadow-xl border border-slate-200">
         <button 
-          onClick={() => setShowCardSettings(true)}
+          onClick={() => { setSettingsDefaultTab('cards'); setShowSettings(true); }}
           className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors"
-          title="Card Appearance"
+          title="Card Appearance (Ctrl+,)"
         >
           <Palette size={20} />
         </button>
         <button 
-          onClick={() => setShowLineSettings(true)}
+          onClick={() => { setSettingsDefaultTab('lines'); setShowSettings(true); }}
           className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors"
-          title="Line Settings"
+          title="Line Settings (Ctrl+,)"
         >
           <Sliders size={20} />
         </button>
@@ -2064,11 +1247,12 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
         onWheel={handleWheel}
       >
         <div 
-          className="origin-top-left transition-transform duration-300 ease-out"
+          className={`origin-top-left ${isZooming ? 'transition-transform duration-300 ease-out' : ''}`}
           style={{ 
             transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
             minWidth: '100%',
-            minHeight: '100%'
+            minHeight: '100%',
+            willChange: isZooming ? 'transform' : 'auto'
           }}
         >
           <div id="chart-content" className="inline-block min-w-max p-24 relative">
@@ -2125,8 +1309,7 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
                             style={{ zIndex: -1 }}
                           ></div>
                           
-                          {/* Department Badge - Clickable */}
-                          <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                          <div className={`absolute -top-3 left-1/2 -translate-x-1/2 ${colorPickerDept === deptName ? 'z-[300]' : ''}`}>
                             <button
                               id={`dept-badge-${deptName}`}
                               onClick={(e) => {
@@ -2440,16 +1623,16 @@ const TeamGroup: React.FC<{
     return [...members].sort((a, b) => (b.isTeamLead ? 1 : 0) - (a.isTeamLead ? 1 : 0));
   }, [members, includeRootAsHead, rootPerson]);
 
-  // Color presets for teams
-  const colorStyles: Record<string, { bg: string; border: string; label: string; labelBorder: string }> = {
-    indigo: { bg: 'bg-indigo-50/50', border: 'border-indigo-200', label: 'bg-indigo-100 text-indigo-700', labelBorder: 'border-indigo-200' },
-    emerald: { bg: 'bg-emerald-50/50', border: 'border-emerald-200', label: 'bg-emerald-100 text-emerald-700', labelBorder: 'border-emerald-200' },
-    amber: { bg: 'bg-amber-50/50', border: 'border-amber-200', label: 'bg-amber-100 text-amber-700', labelBorder: 'border-amber-200' },
-    rose: { bg: 'bg-rose-50/50', border: 'border-rose-200', label: 'bg-rose-100 text-rose-700', labelBorder: 'border-rose-200' },
-    cyan: { bg: 'bg-cyan-50/50', border: 'border-cyan-200', label: 'bg-cyan-100 text-cyan-700', labelBorder: 'border-cyan-200' },
-    purple: { bg: 'bg-purple-50/50', border: 'border-purple-200', label: 'bg-purple-100 text-purple-700', labelBorder: 'border-purple-200' },
-    blue: { bg: 'bg-blue-50/50', border: 'border-blue-200', label: 'bg-blue-100 text-blue-700', labelBorder: 'border-blue-200' },
-    orange: { bg: 'bg-orange-50/50', border: 'border-orange-200', label: 'bg-orange-100 text-orange-700', labelBorder: 'border-orange-200' },
+  // Color presets for teams - using inline rgba for backgrounds to ensure export compatibility
+  const colorStyles: Record<string, { bgColor: string; borderColor: string; label: string; labelBorder: string }> = {
+    indigo: { bgColor: 'rgba(238, 242, 255, 0.5)', borderColor: '#c7d2fe', label: 'bg-indigo-100 text-indigo-700', labelBorder: 'border-indigo-200' },
+    emerald: { bgColor: 'rgba(236, 253, 245, 0.5)', borderColor: '#a7f3d0', label: 'bg-emerald-100 text-emerald-700', labelBorder: 'border-emerald-200' },
+    amber: { bgColor: 'rgba(255, 251, 235, 0.5)', borderColor: '#fde68a', label: 'bg-amber-100 text-amber-700', labelBorder: 'border-amber-200' },
+    rose: { bgColor: 'rgba(255, 241, 242, 0.5)', borderColor: '#fecdd3', label: 'bg-rose-100 text-rose-700', labelBorder: 'border-rose-200' },
+    cyan: { bgColor: 'rgba(236, 254, 255, 0.5)', borderColor: '#a5f3fc', label: 'bg-cyan-100 text-cyan-700', labelBorder: 'border-cyan-200' },
+    purple: { bgColor: 'rgba(250, 245, 255, 0.5)', borderColor: '#e9d5ff', label: 'bg-purple-100 text-purple-700', labelBorder: 'border-purple-200' },
+    blue: { bgColor: 'rgba(239, 246, 255, 0.5)', borderColor: '#bfdbfe', label: 'bg-blue-100 text-blue-700', labelBorder: 'border-blue-200' },
+    orange: { bgColor: 'rgba(255, 247, 237, 0.5)', borderColor: '#fed7aa', label: 'bg-orange-100 text-orange-700', labelBorder: 'border-orange-200' },
   };
   const colors = colorStyles[teamColor || 'indigo'] || colorStyles.indigo;
 
@@ -2457,8 +1640,9 @@ const TeamGroup: React.FC<{
     <div className="flex flex-col items-center relative">
         {/* Background container - negative z-index so lines appear above it */}
         <div 
-            className={`${colors.bg} border border-dashed ${colors.border} rounded-2xl absolute inset-0`}
-            style={{ zIndex: -1 }}
+            data-team-bg="true"
+            className="border border-dashed rounded-2xl absolute inset-0"
+            style={{ zIndex: -1, backgroundColor: colors.bgColor, borderColor: colors.borderColor }}
         ></div>
         {/* Team Label - z-index above lines */}
         <div 

@@ -61,6 +61,7 @@ const DEFAULT_CARD_SETTINGS: CardSettings = {
   avatarShape: 'circle',
   showDepartment: true,
   showLocation: true,
+  showLocationFlag: true,
   
   // Additional Info
   showEmail: false,
@@ -87,6 +88,15 @@ const App: React.FC = () => {
     const savedLineSettings = localStorage.getItem('org-chart-line-settings');
     const savedCardSettings = localStorage.getItem('org-chart-card-settings');
 
+    // Merge saved settings with defaults to ensure new settings have proper defaults
+    const mergedLineSettings = savedLineSettings 
+      ? { ...DEFAULT_LINE_SETTINGS, ...JSON.parse(savedLineSettings) }
+      : DEFAULT_LINE_SETTINGS;
+    
+    const mergedCardSettings = savedCardSettings 
+      ? { ...DEFAULT_CARD_SETTINGS, ...JSON.parse(savedCardSettings) }
+      : DEFAULT_CARD_SETTINGS;
+
     return {
       people: savedPeople ? JSON.parse(savedPeople) : INITIAL_PEOPLE,
       departments: savedDepartments ? JSON.parse(savedDepartments) : DEPARTMENTS,
@@ -94,8 +104,8 @@ const App: React.FC = () => {
       jobTitles: savedJobTitles ? JSON.parse(savedJobTitles) : JOB_TITLES,
       departmentColors: savedColors ? JSON.parse(savedColors) : DEPT_COLORS,
       locationColors: savedLocationColors ? JSON.parse(savedLocationColors) : {},
-      lineSettings: savedLineSettings ? JSON.parse(savedLineSettings) : DEFAULT_LINE_SETTINGS,
-      cardSettings: savedCardSettings ? JSON.parse(savedCardSettings) : DEFAULT_CARD_SETTINGS
+      lineSettings: mergedLineSettings,
+      cardSettings: mergedCardSettings
     };
   });
 
@@ -369,19 +379,28 @@ const App: React.FC = () => {
     try {
       // Find the SVG lines element and temporarily adjust for export
       const svgElement = element.querySelector('svg');
-      const originalStyles: { zIndex?: string; position?: string; opacity?: string } = {};
+      const originalSvgStyles: { zIndex?: string; position?: string; opacity?: string } = {};
       
       if (svgElement) {
         // Store original styles
-        originalStyles.zIndex = svgElement.style.zIndex;
-        originalStyles.position = svgElement.style.position;
-        originalStyles.opacity = svgElement.style.opacity;
+        originalSvgStyles.zIndex = svgElement.style.zIndex;
+        originalSvgStyles.position = svgElement.style.position;
+        originalSvgStyles.opacity = svgElement.style.opacity;
         
         // Ensure SVG is visible and properly positioned for capture
         svgElement.style.zIndex = '5';
         svgElement.style.position = 'absolute';
         svgElement.style.opacity = '1';
       }
+
+      // Find all team background elements with negative z-index and temporarily fix them
+      const teamBackgrounds = element.querySelectorAll('[data-team-bg]') as NodeListOf<HTMLElement>;
+      const originalBgStyles: { el: HTMLElement; zIndex: string }[] = [];
+      
+      teamBackgrounds.forEach((bg) => {
+        originalBgStyles.push({ el: bg, zIndex: bg.style.zIndex });
+        bg.style.zIndex = '1'; // Move to positive z-index for export
+      });
 
       // Use html-to-image with proper SVG handling
       const dataUrl = await toPng(element, { 
@@ -402,10 +421,15 @@ const App: React.FC = () => {
 
       // Restore original styles
       if (svgElement) {
-        if (originalStyles.zIndex !== undefined) svgElement.style.zIndex = originalStyles.zIndex;
-        if (originalStyles.position !== undefined) svgElement.style.position = originalStyles.position;
-        if (originalStyles.opacity !== undefined) svgElement.style.opacity = originalStyles.opacity;
+        if (originalSvgStyles.zIndex !== undefined) svgElement.style.zIndex = originalSvgStyles.zIndex;
+        if (originalSvgStyles.position !== undefined) svgElement.style.position = originalSvgStyles.position;
+        if (originalSvgStyles.opacity !== undefined) svgElement.style.opacity = originalSvgStyles.opacity;
       }
+      
+      // Restore team background z-index
+      originalBgStyles.forEach(({ el, zIndex }) => {
+        el.style.zIndex = zIndex;
+      });
 
       const link = document.createElement('a');
       link.download = 'org-chart.png';

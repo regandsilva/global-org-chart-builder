@@ -81,6 +81,7 @@ export interface CardSettings {
   avatarShape: 'circle' | 'rounded' | 'square';
   showDepartment: boolean;
   showLocation: boolean;
+  showLocationFlag: boolean;  // Show country flag emoji next to location
   
   // ═══════════════════════════════════════
   // ADDITIONAL INFO (New Section)

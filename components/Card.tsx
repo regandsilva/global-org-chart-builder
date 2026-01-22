@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Person, CardSettings } from '../types';
 import { MapPin, GripVertical, Link, Crown, MoreHorizontal, Mail, Phone, Users } from 'lucide-react';
+import { getLocationFlag, getFlagImageUrl } from '../countries';
 
 // Enhanced color mapping for department styles
 const getDeptStyle = (deptColor: string = 'slate') => {
@@ -272,8 +273,7 @@ export const Card: React.FC<CardProps> = React.memo(({
       <div
         style={{ ...cardStyle, visibility: 'hidden', pointerEvents: 'none' }}
         className={`
-          group relative flex flex-col overflow-hidden
-          transition-all duration-300 ease-out outline-none border-solid
+          group relative flex flex-col overflow-hidden outline-none border-solid
           ${paddingClass}
         `}
       >
@@ -318,8 +318,8 @@ export const Card: React.FC<CardProps> = React.memo(({
       onKeyDown={handleKeyDown}
       style={cardStyle}
       className={`
-        group relative flex flex-col overflow-hidden
-        transition-all duration-300 ease-out outline-none border-solid
+        group relative flex flex-col overflow-hidden outline-none border-solid
+        transition-[transform,box-shadow,opacity] duration-200 ease-out
         ${isVacancy ? 'border-2 border-dashed border-slate-300 bg-slate-50' : `${borderClass} bg-white`}
         ${isDragging ? 'opacity-50 scale-95 border-dashed border-blue-400 cursor-grabbing shadow-lg' : `opacity-100 ${hoverEffectClass} cursor-grab active:cursor-grabbing ${shadowClass}`}
         ${isDragOver ? 'ring-2 ring-blue-500 ring-offset-4 ring-offset-white bg-blue-50 border-blue-400 scale-105 shadow-2xl z-50' : 'z-40'}
@@ -415,9 +415,25 @@ export const Card: React.FC<CardProps> = React.memo(({
             )}
             
             {/* Location */}
-            {(cardSettings?.showLocation !== false) && (
+            {(cardSettings?.showLocation !== false) && person.location && (
               <div className="flex items-center gap-1 text-xs text-slate-500 truncate max-w-full">
-                 <MapPin size={10} className="text-slate-400 shrink-0" />
+                 {(cardSettings?.showLocationFlag !== false) && (
+                   <span className="shrink-0 flex items-center" role="img" aria-label={`${person.location} flag`}>
+                     {getFlagImageUrl(person.location) ? (
+                       <img 
+                         src={getFlagImageUrl(person.location, 'w80')!} 
+                         alt={`${person.location} flag`}
+                         className="w-4 h-3 object-cover rounded-[2px] shadow-sm"
+                         loading="lazy"
+                       />
+                     ) : (
+                       <span className="text-sm">{getLocationFlag(person.location) || <MapPin size={10} className="text-slate-400" />}</span>
+                     )}
+                   </span>
+                 )}
+                 {(cardSettings?.showLocationFlag === false) && (
+                   <MapPin size={10} className="text-slate-400 shrink-0" />
+                 )}
                  <span style={{ color: locationColorOverride }} className="truncate">{person.location}</span>
               </div>
             )}

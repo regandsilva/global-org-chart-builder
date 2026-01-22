@@ -1,7 +1,14 @@
 body {
   background-color: #f8fafc;
-  font-family: 'Inter', sans-serif;
+  font-family: 'Inter', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji', sans-serif;
   overscroll-behavior: none;
+}
+
+/* Ensure emoji flags render correctly across all platforms */
+[role="img"],
+select option,
+.emoji-font {
+  font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji', 'Inter', sans-serif;
 }
 
 .hide-scrollbar::-webkit-scrollbar {

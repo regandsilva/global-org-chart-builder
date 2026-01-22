@@ -1,40 +1,69 @@
 # Copilot Instructions for Global Org Chart Builder
 
-## 🔭 Project Overview
-This is a **React 19 + Vite** application for building and visualizing organizational charts. It uses a client-side architecture with `localStorage` persistence.
+## Project Overview
+React 19 + Vite application for interactive org chart visualization. Client-side only with `localStorage` persistence—no backend.
 
-## 🏗 Architecture & State
-- **State Management**: Centralized in `App.tsx`. Data (`people`, `departments`, `settings`) is initialized from `localStorage` or constants.
-- **Data Model**: Defined in `types.ts`.
-  - Core entity: `Person` (supports `managerId` for hierarchy and `secondaryManagerIds` for dotted-line reports).
-  - Settings: `LineSettings`, `CardSettings` control visual customization.
-- **Visualization**:
-  - `components/OrgChart.tsx`: The primary component. It is **monolithic** (~2500 lines) and handles:
-    - Canvas rendering (zoom/pan logic).
-    - Node layout and connections.
-    - Settings modals and interaction handlers.
-  - `components/Card.tsx`: Renders individual employee nodes.
-  - `components/Lines.tsx`: Draws SVG connections between nodes.
+## Architecture
 
-## 🎨 Styling & UI
-- **Tailwind CSS**: Used via **CDN** in `index.html`.
-  - ⚠️ **Do not** look for `tailwind.config.js`. Configuration is inline in `index.html`.
-  - Use standard Tailwind utility classes.
-- **Icons**: `lucide-react` is the standard icon library.
-- **Fonts**: Inter (via Google Fonts).
+### State Flow
+`App.tsx` is the single source of truth. State uses `useHistoryState` hook (in `hooks/`) for undo/redo support:
+```
+App.tsx (AppState) → OrgChart.tsx (visualization) → Card.tsx / Lines.tsx (rendering)
+```
+All state mutations go through setter wrappers in App.tsx that update the unified `AppState` object.
 
-## 🛠 Key Workflows
-- **Development**: `npm run dev` (Vite).
-- **Persistence**: All changes are automatically saved to `localStorage` keys (`org-chart-people`, `org-chart-settings`, etc.).
-- **Export**: Uses `html-to-image` to generate PNG downloads of the chart.
+### Key Data Structures (`types.ts`)
+- `Person`: Core entity. Hierarchy via `managerId`. Dotted-line reports via `secondaryManagerIds[]`.
+- `CardSettings` / `LineSettings`: Visual customization (colors, sizes, styles).
 
-## 📝 Coding Conventions
-- **Components**: Functional components with TypeScript interfaces.
-- **Props**: Define explicit interfaces for all component props (e.g., `OrgChartProps`).
-- **Constants**: Use `constants.ts` for initial data (`INITIAL_PEOPLE`) and configuration options (`DEPARTMENTS`, `LOCATIONS`).
-- **Large Files**: Be cautious when editing `OrgChart.tsx`. It contains mixed concerns (UI, logic, layout). Prefer extracting logic into hooks or smaller components if refactoring is requested.
+### Component Responsibilities
+| Component | Purpose | Notes |
+|-----------|---------|-------|
+| `OrgChart.tsx` | Main canvas (~1800 lines) | Zoom/pan, drag-drop, modals, layout. **Monolithic**—changes require care. |
+| `Card.tsx` | Employee node rendering | Receives `CardSettings` for dynamic styling |
+| `Lines.tsx` | SVG connection paths | Creates elbow paths with `createElbowPath()` / `createTreePath()` |
+| `components/settings/` | Settings panel UI | Modular: `CardSettingsTab`, `LineSettingsTab`, shared controls |
 
-## ⚠️ Important Implementation Details
-- **Dotted Lines**: Secondary reporting lines are rendered based on `secondaryManagerIds`.
-- **Zoom/Pan**: Implemented manually in `OrgChart.tsx` using transform styles on a container div.
-- **Drag & Drop**: Custom implementation for moving nodes within the chart.
+### localStorage Keys
+```
+org-chart-people, org-chart-departments, org-chart-locations,
+org-chart-job-titles, org-chart-colors, org-chart-location-colors,
+org-chart-line-settings, org-chart-card-settings
+```
+
+## Styling
+- **Tailwind via CDN** in `index.html`—no `tailwind.config.js` file. Config is inline `<script>` in HTML.
+- **Icons**: `lucide-react` exclusively.
+- **Fonts**: Inter from Google Fonts.
+
+## Development
+```bash
+npm install
+npm run dev    # Vite dev server
+npm run build  # Production build (base: /global-org-chart-builder/)
+```
+
+## Patterns & Conventions
+
+### Adding New Person Fields
+1. Update `Person` interface in `types.ts`
+2. Add to edit modal in `OrgChart.tsx` (search for `editingPerson`)
+3. Update `Card.tsx` rendering if visible on card
+4. Consider adding to `CardSettings` if user-togglable
+
+### Adding New Settings
+1. Add to `CardSettings` or `LineSettings` in `types.ts`
+2. Add default in `DEFAULT_CARD_SETTINGS` or `DEFAULT_LINE_SETTINGS` in `App.tsx`
+3. Add UI control in `components/settings/CardSettingsTab.tsx` or `LineSettingsTab.tsx`
+4. Use setting value in `Card.tsx` or `Lines.tsx`
+
+### Drag & Drop
+Custom implementation in `OrgChart.tsx`. Moving a person:
+- Updates their `managerId` to the drop target
+- Cascades department changes to all descendants via `handleMovePerson()`
+
+## Gotchas
+- **No tests configured**—`tests/` folder exists but is empty
+- **Import/Export**: Supports both legacy array format and full AppState JSON
+- **Zoom**: Manual transform-based implementation with `MIN_ZOOM=0.25` / `MAX_ZOOM=2`
+- **Country flags**: `countries.ts` has 200+ countries with emoji flags via `getLocationFlag()`
