@@ -20,6 +20,7 @@ export interface Person {
   isTeamLead?: boolean; // New field to designate team leaders
   teamColor?: string; // Custom color for team grouping background
   deptColor?: string; // Custom color for department badge
+  sortOrder?: number; // Manual sort order within siblings (lower = further left)
   email?: string;
   phone?: string;
   isVacancy?: boolean; // New field for future roles/vacancies

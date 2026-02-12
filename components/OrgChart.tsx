@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef, useEffect } from 'react';
+import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import { Person, LineSettings, CardSettings } from '../types';
 import { Card } from './Card';
 import { Lines } from './Lines';
@@ -6,7 +6,19 @@ import { SettingsPanel } from './settings';
 import { DEPARTMENTS, LOCATIONS } from '../constants';
 import { getLocationFlag, getPopularLocations, COUNTRIES, SPECIAL_LOCATIONS, getFlagImageUrl } from '../countries';
 import { LocationSelect } from './LocationSelect';
-import { ZoomIn, ZoomOut, RotateCcw, Maximize, Search, X, Trash2, Users, Crown, Link, User, Building, MapPin, Mail, Phone, ChevronDown, Plus, Check, Settings, Sliders, Palette, Globe } from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCcw, Maximize, Search, X, Trash2, Users, Crown, Link, User, Building, MapPin, Mail, Phone, ChevronDown, Plus, Check, Settings, Sliders, Palette, Globe, ArrowLeft, ArrowRight } from 'lucide-react';
+
+// Sort helper: sort people by sortOrder (lower first), then by name as fallback
+const sortBySortOrder = (a: Person, b: Person): number => {
+  const aOrder = a.sortOrder ?? 999999;
+  const bOrder = b.sortOrder ?? 999999;
+  if (aOrder !== bOrder) return aOrder - bOrder;
+  // Team leads sort first among equal sort orders
+  const aLead = a.isTeamLead ? 0 : 1;
+  const bLead = b.isTeamLead ? 0 : 1;
+  if (aLead !== bLead) return aLead - bLead;
+  return a.name.localeCompare(b.name);
+};
 
 interface OrgChartProps {
   people: Person[];
@@ -15,6 +27,7 @@ interface OrgChartProps {
   cardSettings?: CardSettings;
   onUpdateCardSettings?: (settings: CardSettings) => void;
   onMovePerson: (draggedId: string, targetId: string) => void;
+  onReorderPerson?: (personId: string, direction: 'left' | 'right') => void;
   onUpdatePerson?: (person: Person) => void;
   onDeletePerson?: (id: string) => void;
   onAddPerson?: (person: Person) => void;
@@ -42,13 +55,17 @@ const MAX_ZOOM = 2;
 const ZOOM_STEP = 0.15;
 const ZOOM_SENSITIVITY = 0.002;
 
-export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpdateLineSettings, cardSettings, onUpdateCardSettings, onMovePerson, onUpdatePerson, onDeletePerson, onAddPerson, departments: propDepartments, locations: propLocations, jobTitles: propJobTitles, onAddDepartment, onAddLocation, onAddJobTitle, onDeleteDepartment, onDeleteLocation, onDeleteJobTitle, showAddModal, onCloseAddModal, onOpenAddModal, departmentColors = {}, onSetDepartmentColor, locationColors = {}, onSetLocationColor }) => {
+export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpdateLineSettings, cardSettings, onUpdateCardSettings, onMovePerson, onReorderPerson, onUpdatePerson, onDeletePerson, onAddPerson, departments: propDepartments, locations: propLocations, jobTitles: propJobTitles, onAddDepartment, onAddLocation, onAddJobTitle, onDeleteDepartment, onDeleteLocation, onDeleteJobTitle, showAddModal, onCloseAddModal, onOpenAddModal, departmentColors = {}, onSetDepartmentColor, locationColors = {}, onSetLocationColor }) => {
   const [scale, setScale] = useState(0.8);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
   const [isZooming, setIsZooming] = useState(false); // Track when actively zooming for smooth transitions
   const zoomTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dragStart = useRef({ x: 0, y: 0 });
+  const canvasRef = useRef<HTMLDivElement>(null);
+  // Use refs for scale/position so the non-passive wheel handler always has current values
+  const scaleRef = useRef(0.8);
+  const positionRef = useRef({ x: 0, y: 0 });
 
   // Tier background bands state
   const [tierBands, setTierBands] = useState<Array<{tier: number; top: number; height: number; width: number}>>([]);
@@ -63,58 +80,116 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
   // Edit Modal State
   const [editingPerson, setEditingPerson] = useState<Person | null>(null);
 
+  // Sync editingPerson's sortOrder from people prop when reorder happens outside modal
+  useEffect(() => {
+    if (editingPerson) {
+      const updatedPerson = people.find(p => p.id === editingPerson.id);
+      if (updatedPerson && updatedPerson.sortOrder !== editingPerson.sortOrder) {
+        setEditingPerson(prev => prev ? { ...prev, sortOrder: updatedPerson.sortOrder } : null);
+      }
+    }
+  }, [people]);
+
   // Department Badge Color Picker State
   const [colorPickerDept, setColorPickerDept] = useState<string | null>(null);
 
+  // Keep refs in sync with state
+  useEffect(() => { scaleRef.current = scale; }, [scale]);
+  useEffect(() => { positionRef.current = position; }, [position]);
+
   // --- CANVAS CONTROLS ---
-  // Helper to trigger zoom transition mode
+  // Helper to trigger zoom transition mode (for button-based zoom only)
   const triggerZoomTransition = () => {
     setIsZooming(true);
     if (zoomTimeoutRef.current) clearTimeout(zoomTimeoutRef.current);
     zoomTimeoutRef.current = setTimeout(() => setIsZooming(false), 350);
   };
 
-  const handleWheel = (e: React.WheelEvent) => {
-    if (e.ctrlKey || e.metaKey) {
-      e.preventDefault();
-      const delta = -e.deltaY * ZOOM_SENSITIVITY;
-      triggerZoomTransition();
-      setScale(s => {
-        const newScale = s + delta;
-        // Clamp to limits
-        return Math.min(Math.max(MIN_ZOOM, newScale), MAX_ZOOM);
-      });
-    } else {
-      setPosition(prev => ({
-        x: prev.x - e.deltaX,
-        y: prev.y - e.deltaY
-      }));
+  // Non-passive wheel handler attached via useEffect so preventDefault() works
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        // Multiplicative zoom for consistent feel at all scales
+        const factor = Math.pow(0.998, e.deltaY);
+        const oldScale = scaleRef.current;
+        const newScale = Math.min(Math.max(MIN_ZOOM, oldScale * factor), MAX_ZOOM);
+        // Zoom toward cursor position
+        const rect = el.getBoundingClientRect();
+        const cursorX = e.clientX - rect.left;
+        const cursorY = e.clientY - rect.top;
+        const pos = positionRef.current;
+        const newX = cursorX - (cursorX - pos.x) * (newScale / oldScale);
+        const newY = cursorY - (cursorY - pos.y) * (newScale / oldScale);
+        setScale(newScale);
+        setPosition({ x: newX, y: newY });
+      } else {
+        setPosition(prev => ({
+          x: prev.x - e.deltaX,
+          y: prev.y - e.deltaY
+        }));
+      }
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+
+  // Zoom helper: zoom toward the center of the viewport
+  const zoomToCenter = (newScale: number) => {
+    const el = canvasRef.current;
+    if (!el) {
+      setScale(newScale);
+      return;
     }
+    const rect = el.getBoundingClientRect();
+    const cx = rect.width / 2;
+    const cy = rect.height / 2;
+    const oldScale = scaleRef.current;
+    const pos = positionRef.current;
+    const newX = cx - (cx - pos.x) * (newScale / oldScale);
+    const newY = cy - (cy - pos.y) * (newScale / oldScale);
+    setScale(newScale);
+    setPosition({ x: newX, y: newY });
   };
 
   // Zoom helper functions
-  const zoomIn = () => { triggerZoomTransition(); setScale(s => Math.min(s + ZOOM_STEP, MAX_ZOOM)); };
-  const zoomOut = () => { triggerZoomTransition(); setScale(s => Math.max(s - ZOOM_STEP, MIN_ZOOM)); };
+  const zoomIn = () => { triggerZoomTransition(); zoomToCenter(Math.min(scale + ZOOM_STEP, MAX_ZOOM)); };
+  const zoomOut = () => { triggerZoomTransition(); zoomToCenter(Math.max(scale - ZOOM_STEP, MIN_ZOOM)); };
   const resetZoom = () => { triggerZoomTransition(); setScale(0.8); setPosition({ x: 0, y: 0 }); };
   const zoomPercent = Math.round(scale * 100);
 
   const handleFitToScreen = () => {
     const content = document.getElementById('chart-content');
-    const container = content?.parentElement?.parentElement;
-    if (!content || !container) return;
+    const el = canvasRef.current;
+    if (!content || !el) return;
 
+    const containerRect = el.getBoundingClientRect();
     const contentRect = content.getBoundingClientRect();
-    const containerRect = container.getBoundingClientRect();
 
-    // Fit to screen with reasonable scale
+    // Get the unscaled content dimensions
+    const contentWidth = contentRect.width / scale;
+    const contentHeight = contentRect.height / scale;
+
+    // Calculate scale to fit content within container with padding
     const fitScale = Math.min(
-      (containerRect.width * 0.9) / (contentRect.width / scale),
-      (containerRect.height * 0.9) / (contentRect.height / scale),
+      (containerRect.width * 0.9) / contentWidth,
+      (containerRect.height * 0.9) / contentHeight,
       MAX_ZOOM
     );
+    const clampedScale = Math.max(MIN_ZOOM, fitScale);
+
+    // Center the content within the container
+    const scaledWidth = contentWidth * clampedScale;
+    const scaledHeight = contentHeight * clampedScale;
+    const newX = (containerRect.width - scaledWidth) / 2;
+    const newY = (containerRect.height - scaledHeight) / 2;
+
     triggerZoomTransition();
-    setScale(Math.max(MIN_ZOOM, Math.min(fitScale, 0.8)));
-    setPosition({ x: 0, y: 0 });
+    setScale(clampedScale);
+    setPosition({ x: newX, y: newY });
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -182,10 +257,10 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
   // --- DATA PREP ---
   // Root people (executives)
   const rootPeople = useMemo(() => {
-    return people.filter(p => !p.managerId || !people.find(m => m.id === p.managerId));
+    return people.filter(p => !p.managerId || !people.find(m => m.id === p.managerId)).sort(sortBySortOrder);
   }, [people]);
 
-  const getDirectReports = (managerId: string) => people.filter(p => p.managerId === managerId);
+  const getDirectReports = (managerId: string) => people.filter(p => p.managerId === managerId).sort(sortBySortOrder);
 
   // Get Department Heads (Direct reports of Root)
   const deptHeads = useMemo(() => {
@@ -399,7 +474,8 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
     });
 
     return () => cancelAnimationFrame(tierAlignRafRef.current);
-  }, [people, effectiveTiers, cardSettings, scale]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [people, effectiveTiers, cardSettings]);
 
   const allDeptNames = useMemo(() => {
     if (propDepartments) return propDepartments;
@@ -483,6 +559,13 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
 
   const handleAddNewPerson = () => {
     if ((newPerson.name || newPerson.isVacancy) && newPerson.title && onAddPerson) {
+      // Auto-assign sortOrder: place at end of siblings
+      // Normalize managerId for comparison (null/undefined/'' all mean "root")
+      const newMgrId = newPerson.managerId || null;
+      const siblings = people.filter(p => (p.managerId || null) === newMgrId);
+      const maxOrder = siblings.length > 0 
+        ? siblings.reduce((max, s) => Math.max(max, s.sortOrder ?? 0), 0) + 1 
+        : 0;
       const person: Person = {
         id: crypto.randomUUID(),
         name: newPerson.isVacancy ? 'Vacancy' : newPerson.name!,
@@ -493,7 +576,8 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
         secondaryManagerIds: [],
         teamName: newPerson.teamName,
         isTeamLead: newPerson.isTeamLead,
-        isVacancy: newPerson.isVacancy
+        isVacancy: newPerson.isVacancy,
+        sortOrder: maxOrder
       };
       onAddPerson(person);
       setNewPerson({
@@ -965,6 +1049,43 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
                         />
                         <p className="text-[10px] text-slate-400 flex-1">
                           Force this person to appear at a specific level (0 = Executive). Leave empty for auto.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1 pt-2 border-t border-slate-200">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Sort Order (Position Among Siblings)</label>
+                      <div className="flex items-center gap-2">
+                        <input 
+                          type="number"
+                          min="0"
+                          className="w-20 px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                          value={editingPerson.sortOrder != null ? editingPerson.sortOrder : ''}
+                          onChange={e => setEditingPerson({...editingPerson, sortOrder: e.target.value !== '' ? parseInt(e.target.value) : undefined})}
+                          placeholder="Auto"
+                        />
+                        {onReorderPerson && (
+                          <div className="flex gap-1">
+                            <button
+                              type="button"
+                              onClick={() => onReorderPerson(editingPerson.id, 'left')}
+                              className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
+                              title="Move left"
+                            >
+                              <ArrowLeft size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onReorderPerson(editingPerson.id, 'right')}
+                              className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
+                              title="Move right"
+                            >
+                              <ArrowRight size={14} />
+                            </button>
+                          </div>
+                        )}
+                        <p className="text-[10px] text-slate-400 flex-1">
+                          Lower number = further left. Use arrows or set manually. Leave empty for alphabetical.
                         </p>
                       </div>
                     </div>
@@ -1440,19 +1561,17 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
 
       {/* Canvas Area */}
       <div 
-        className="w-full h-full cursor-grab active:cursor-grabbing bg-dot-pattern"
+        ref={canvasRef}
+        className="w-full h-full cursor-grab active:cursor-grabbing bg-dot-pattern overflow-hidden"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        onWheel={handleWheel}
       >
         <div 
           className={`origin-top-left ${isZooming ? 'transition-transform duration-300 ease-out' : ''}`}
           style={{ 
             transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
-            minWidth: '100%',
-            minHeight: '100%',
             willChange: isZooming ? 'transform' : 'auto'
           }}
         >
@@ -1517,7 +1636,7 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
                   </div>
                   <div className="flex justify-center gap-16 shrink-0">
                   {rootPeople.map(person => (
-                    <div key={person.id} className="card-node shrink-0" data-tier-align={person.id}>
+                    <div key={person.id} className="card-node shrink-0 relative group/root" data-tier-align={person.id}>
                       <Card 
                         person={person} 
                         onClick={handleEditClick} 
@@ -1532,6 +1651,25 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
                         onDelete={() => handleDeleteClick(person.id)}
                         cardSettings={cardSettings}
                       />
+                      {/* Reorder Arrows for root-level cards */}
+                      {onReorderPerson && rootPeople.length > 1 && (
+                        <>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onReorderPerson(person.id, 'left'); }}
+                            className="absolute top-1/2 -translate-y-1/2 -left-7 w-5 h-5 bg-slate-600 text-white rounded-full flex items-center justify-center shadow-md hover:bg-slate-700 hover:scale-110 transition-all z-50 opacity-0 group-hover/root:opacity-100"
+                            title="Move left"
+                          >
+                            <ArrowLeft size={11} />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onReorderPerson(person.id, 'right'); }}
+                            className="absolute top-1/2 -translate-y-1/2 -right-7 w-5 h-5 bg-slate-600 text-white rounded-full flex items-center justify-center shadow-md hover:bg-slate-700 hover:scale-110 transition-all z-50 opacity-0 group-hover/root:opacity-100"
+                            title="Move right"
+                          >
+                            <ArrowRight size={11} />
+                          </button>
+                        </>
+                      )}
                     </div>
                   ))}
                   </div>
@@ -1625,6 +1763,7 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
                                 departmentColors={departmentColors}
                                 locationColors={locationColors}
                                 onAddDirectReport={handleAddDirectReport}
+                                onReorderPerson={onReorderPerson}
                                 onSetDepartmentColor={onSetDepartmentColor}
                                 cardSettings={cardSettings}
                               />
@@ -1683,17 +1822,18 @@ interface TreeProps {
   departmentColors?: Record<string, string>;
   locationColors?: Record<string, string>;
   onAddDirectReport?: (managerId: string, department?: string, location?: string) => void;
+  onReorderPerson?: (personId: string, direction: 'left' | 'right') => void;
   onSetDepartmentColor?: (dept: string, color: string) => void;
   cardSettings?: CardSettings;
   level?: number;
 }
 
-const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDragStart, onDragEnd, onDrop, draggedId, getSecondaryManager, onEdit, onDelete, onDeletePerson, isInsideParentTeam = false, departmentColors = {}, locationColors = {}, onAddDirectReport, onSetDepartmentColor, cardSettings, level = 0 }) => {
+const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDragStart, onDragEnd, onDrop, draggedId, getSecondaryManager, onEdit, onDelete, onDeletePerson, isInsideParentTeam = false, departmentColors = {}, locationColors = {}, onAddDirectReport, onReorderPerson, onSetDepartmentColor, cardSettings, level = 0 }) => {
   const [subColorPickerDept, setSubColorPickerDept] = useState<string | null>(null);
   
   // Find direct reports
   const directReports = useMemo(() => {
-    return people.filter(p => p.managerId === root.id);
+    return people.filter(p => p.managerId === root.id).sort(sortBySortOrder);
   }, [people, root.id]);
 
   // Group by Team and Others (Flattened Location)
@@ -1772,6 +1912,7 @@ const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDra
           departmentColors={departmentColors}
           locationColors={locationColors}
           onAddDirectReport={onAddDirectReport}
+          onReorderPerson={onReorderPerson}
           onSetDepartmentColor={onSetDepartmentColor}
           cardSettings={cardSettings}
           level={level}
@@ -1811,6 +1952,25 @@ const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDra
         >
             <Plus size={14} />
         </button>
+        {/* Reorder Arrows */}
+        {onReorderPerson && (
+          <>
+            <button
+              onClick={(e) => { e.stopPropagation(); onReorderPerson(root.id, 'left'); }}
+              className="absolute top-1/2 -translate-y-1/2 -left-7 w-5 h-5 bg-slate-600 text-white rounded-full flex items-center justify-center shadow-md hover:bg-slate-700 hover:scale-110 transition-all z-50 opacity-0 group-hover/add:opacity-100"
+              title="Move left"
+            >
+              <ArrowLeft size={11} />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onReorderPerson(root.id, 'right'); }}
+              className="absolute top-1/2 -translate-y-1/2 -right-7 w-5 h-5 bg-slate-600 text-white rounded-full flex items-center justify-center shadow-md hover:bg-slate-700 hover:scale-110 transition-all z-50 opacity-0 group-hover/add:opacity-100"
+              title="Move right"
+            >
+              <ArrowRight size={11} />
+            </button>
+          </>
+        )}
       </div>
 
       {/* Children Container */}
@@ -1895,6 +2055,7 @@ const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDra
                           departmentColors={departmentColors}
                           locationColors={locationColors}
                           onAddDirectReport={onAddDirectReport}
+                          onReorderPerson={onReorderPerson}
                           onSetDepartmentColor={onSetDepartmentColor}
                           cardSettings={cardSettings}
                           level={level + 1}
@@ -1919,6 +2080,7 @@ const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDra
                         departmentColors={departmentColors}
                         locationColors={locationColors}
                         onAddDirectReport={onAddDirectReport}
+                        onReorderPerson={onReorderPerson}
                         onSetDepartmentColor={onSetDepartmentColor}
                         cardSettings={cardSettings}
                         level={level + 1}
@@ -1951,6 +2113,7 @@ const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDra
                     departmentColors={departmentColors}
                     locationColors={locationColors}
                     onAddDirectReport={onAddDirectReport}
+                    onReorderPerson={onReorderPerson}
                     onSetDepartmentColor={onSetDepartmentColor}
                     cardSettings={cardSettings}
                     level={level + 1}
@@ -1976,6 +2139,7 @@ const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDra
                       departmentColors={departmentColors}
                       locationColors={locationColors}
                       onAddDirectReport={onAddDirectReport}
+                      onReorderPerson={onReorderPerson}
                       onSetDepartmentColor={onSetDepartmentColor}
                       cardSettings={cardSettings}
                       level={level + 1}
@@ -2014,19 +2178,19 @@ const TeamGroup: React.FC<{
   departmentColors?: Record<string, string>;
   locationColors?: Record<string, string>;
   onAddDirectReport?: (managerId: string, department?: string, location?: string) => void;
+  onReorderPerson?: (personId: string, direction: 'left' | 'right') => void;
   onSetDepartmentColor?: (dept: string, color: string) => void;
   cardSettings?: CardSettings;
   level?: number;
-}> = ({ teamName, members, people, onPersonClick, onDragStart, onDragEnd, onDrop, draggedId, getSecondaryManager, onDeletePerson, includeRootAsHead, rootPerson, onRootEdit, onRootDelete, teamColor, otherTeams, others, departmentColors = {}, locationColors = {}, onAddDirectReport, onSetDepartmentColor, cardSettings, level = 0 }) => {
+}> = ({ teamName, members, people, onPersonClick, onDragStart, onDragEnd, onDrop, draggedId, getSecondaryManager, onDeletePerson, includeRootAsHead, rootPerson, onRootEdit, onRootDelete, teamColor, otherTeams, others, departmentColors = {}, locationColors = {}, onAddDirectReport, onReorderPerson, onSetDepartmentColor, cardSettings, level = 0 }) => {
   
-  // Sort: Team Leader first, then root if included
+  // Sort: by sortOrder first, then Team Leader, then name (handled by sortBySortOrder)
   const sortedMembers = useMemo(() => {
     if (includeRootAsHead && rootPerson) {
-      // Root is displayed separately at top, filter out from members
       const withoutRoot = members.filter(m => m.id !== rootPerson.id);
-      return [...withoutRoot].sort((a, b) => (b.isTeamLead ? 1 : 0) - (a.isTeamLead ? 1 : 0));
+      return [...withoutRoot].sort(sortBySortOrder);
     }
-    return [...members].sort((a, b) => (b.isTeamLead ? 1 : 0) - (a.isTeamLead ? 1 : 0));
+    return [...members].sort(sortBySortOrder);
   }, [members, includeRootAsHead, rootPerson]);
 
   // Color presets for teams - using inline rgba for backgrounds to ensure export compatibility
@@ -2112,6 +2276,7 @@ const TeamGroup: React.FC<{
                         departmentColors={departmentColors}
                         locationColors={locationColors}
                         onAddDirectReport={onAddDirectReport}
+                        onReorderPerson={onReorderPerson}
                         onSetDepartmentColor={onSetDepartmentColor}
                         cardSettings={cardSettings}
                         level={includeRootAsHead ? level + 1 : level}
@@ -2141,6 +2306,7 @@ const TeamGroup: React.FC<{
                       departmentColors={departmentColors}
                       locationColors={locationColors}
                       onAddDirectReport={onAddDirectReport}
+                      onReorderPerson={onReorderPerson}
                       onSetDepartmentColor={onSetDepartmentColor}
                       cardSettings={cardSettings}
                       level={includeRootAsHead ? level + 1 : level}
@@ -2170,6 +2336,7 @@ const TeamGroup: React.FC<{
                     departmentColors={departmentColors}
                     locationColors={locationColors}
                     onAddDirectReport={onAddDirectReport}
+                    onReorderPerson={onReorderPerson}
                     onSetDepartmentColor={onSetDepartmentColor}
                   />
                 ))}

@@ -336,12 +336,17 @@ const App: React.FC = () => {
 
     const descendantIds = getDescendants(draggedId, people);
 
+    // Auto-assign sortOrder at end of target's children
+    const targetChildren = people.filter(p => p.managerId === targetId);
+    const maxOrder = targetChildren.reduce((max, c) => Math.max(max, c.sortOrder ?? 0), 0);
+
     setPeople(prev => prev.map(p => {
       if (p.id === draggedId) {
         return { 
           ...p, 
           managerId: targetId,
-          department: targetDepartment || p.department
+          department: targetDepartment || p.department,
+          sortOrder: maxOrder + 1
         };
       }
       // Also update all descendants to the new department
@@ -353,6 +358,60 @@ const App: React.FC = () => {
       }
       return p;
     }));
+  };
+
+  // Helper: normalize managerId for comparison (null, undefined, '' all treated as "no manager")
+  const normalizeMgrId = (id: string | null | undefined): string | null => {
+    return id || null;
+  };
+
+  const handleReorderPerson = (personId: string, direction: 'left' | 'right') => {
+    setPeople(prev => {
+      const person = prev.find(p => p.id === personId);
+      if (!person) return prev;
+
+      const personMgrId = normalizeMgrId(person.managerId);
+
+      // Get siblings (same manager) — normalize managerId comparison
+      const siblings = prev
+        .filter(p => normalizeMgrId(p.managerId) === personMgrId)
+        .sort((a, b) => {
+          const aOrder = a.sortOrder ?? 999999;
+          const bOrder = b.sortOrder ?? 999999;
+          if (aOrder !== bOrder) return aOrder - bOrder;
+          // Team leads sort first among equal sort orders (matches rendering)
+          const aLead = a.isTeamLead ? 0 : 1;
+          const bLead = b.isTeamLead ? 0 : 1;
+          if (aLead !== bLead) return aLead - bLead;
+          return a.name.localeCompare(b.name);
+        });
+
+      if (siblings.length <= 1) return prev;
+
+      const currentIndex = siblings.findIndex(s => s.id === personId);
+      if (currentIndex === -1) return prev;
+
+      const targetIndex = direction === 'left' ? currentIndex - 1 : currentIndex + 1;
+      if (targetIndex < 0 || targetIndex >= siblings.length) return prev;
+
+      // First, normalize: assign contiguous sort orders to all siblings
+      // so swapping is always reliable
+      const siblingIds = siblings.map(s => s.id);
+      const normalizedOrders = new Map<string, number>();
+      siblingIds.forEach((id, i) => normalizedOrders.set(id, i));
+
+      // Swap the two
+      const targetSibling = siblings[targetIndex];
+      normalizedOrders.set(personId, targetIndex);
+      normalizedOrders.set(targetSibling.id, currentIndex);
+
+      return prev.map(p => {
+        if (normalizedOrders.has(p.id)) {
+          return { ...p, sortOrder: normalizedOrders.get(p.id)! };
+        }
+        return p;
+      });
+    });
   };
 
   const handleAddDepartment = (dept: string) => {
@@ -561,6 +620,7 @@ const App: React.FC = () => {
              cardSettings={cardSettings}
              onUpdateCardSettings={setCardSettings}
              onMovePerson={handleMovePerson}
+             onReorderPerson={handleReorderPerson}
              onUpdatePerson={handleUpdatePerson}
              onDeletePerson={handleDeletePerson}
              onAddPerson={handleAddPerson}
