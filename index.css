@@ -2,6 +2,9 @@ body {
   background-color: #f8fafc;
   font-family: 'Inter', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji', sans-serif;
   overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 /* Ensure emoji flags render correctly across all platforms */
@@ -30,4 +33,34 @@ select option,
 .card-node {
   transition: transform 0.2s cubic-bezier(0.2, 0, 0.2, 1), opacity 0.2s;
   will-change: transform;
+  /* Prevent blur from transforms - crisp card rendering */
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+  -webkit-font-smoothing: subpixel-antialiased;
+}
+
+/* Crisp card styling */
+.card-node > div {
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  -webkit-font-smoothing: subpixel-antialiased;
+  image-rendering: -webkit-optimize-contrast;
+}
+
+/* Chart content container - prevent blur from scale transforms */
+#chart-content {
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  -webkit-font-smoothing: antialiased;
+  transform-style: preserve-3d;
+}
+
+/* Ensure crisp borders and shadows on cards */
+#chart-content [role="button"] {
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  transform: translateZ(0);
 }

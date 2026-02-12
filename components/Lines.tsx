@@ -148,7 +148,7 @@ export const Lines: React.FC<LinesProps> = ({ people, deptHeads = [], scale, set
               Q ${endX} ${midY} ${endX} ${midY + r} 
               L ${endX} ${endY}`;
     }
-  }, []);
+  }, [cornerRadius]);
 
   // Create optimized tree connector - single continuous path
   const createTreePath = useCallback((
@@ -210,7 +210,7 @@ export const Lines: React.FC<LinesProps> = ({ people, deptHeads = [], scale, set
     }
 
     return path;
-  }, [createElbowPath]);
+  }, [createElbowPath, cornerRadius]);
 
   // Generate a consistent color from a string ID
   const getColorFromId = useCallback((id: string) => {
@@ -293,25 +293,117 @@ export const Lines: React.FC<LinesProps> = ({ people, deptHeads = [], scale, set
       const mgrPos = getNodePosition(mgrId, containerRect, forceRefresh);
       if (!mgrPos) return;
 
-      // Filter out dept heads (they connect via badges)
-      const validChildren = childIds
-        .filter(id => !deptHeadIds.has(id))
-        .map(id => {
-          const pos = getNodePosition(id, containerRect, forceRefresh);
-          return pos ? { x: pos.centerX, y: pos.top } : null;
-        })
-        .filter(Boolean) as Array<{ x: number; y: number }>;
+      // Filter out dept heads (they connect via top-level badges)
+      const nonDeptHeadChildren = childIds.filter(id => !deptHeadIds.has(id));
+      if (nonDeptHeadChildren.length === 0) return;
 
-      if (validChildren.length === 0) return;
+      // Check if this manager has sub-department badges
+      // Group children by department to find their badges
+      const childrenByDept: Record<string, string[]> = {};
+      nonDeptHeadChildren.forEach(childId => {
+        const child = people.find(p => p.id === childId);
+        const dept = child?.department || 'Other';
+        if (!childrenByDept[dept]) childrenByDept[dept] = [];
+        childrenByDept[dept].push(childId);
+      });
 
-      const treePath = createTreePath(mgrPos.centerX, mgrPos.bottom, validChildren, cornerRadius);
-      if (treePath) {
-        newPaths.push({
-          key: `tree-${mgrId}`,
-          d: treePath,
-          stroke: primaryColor,
-          strokeWidth: primaryWidth
+      // Look for sub-department badge elements in the DOM
+      interface SubBadgeInfo {
+        dept: string;
+        pos: NodePosition;
+        childIds: string[];
+      }
+      const subBadges: SubBadgeInfo[] = [];
+      const badgedChildIds = new Set<string>();
+
+      Object.entries(childrenByDept).forEach(([dept, ids]) => {
+        const badgeEl = document.getElementById(`sub-dept-badge-${mgrId}-${dept}`);
+        if (badgeEl) {
+          const rect = badgeEl.getBoundingClientRect();
+          subBadges.push({
+            dept,
+            pos: {
+              id: dept,
+              centerX: (rect.left + rect.width / 2 - containerRect.left) / scale,
+              top: (rect.top - containerRect.top) / scale,
+              bottom: (rect.bottom - containerRect.top) / scale,
+              left: (rect.left - containerRect.left) / scale,
+              right: (rect.right - containerRect.left) / scale,
+            },
+            childIds: ids
+          });
+          ids.forEach(id => badgedChildIds.add(id));
+        }
+      });
+
+      if (subBadges.length > 0) {
+        // Route through sub-department badges
+        // Manager → sub-badges
+        const badgeTargets = subBadges.map(b => ({ x: b.pos.centerX, y: b.pos.top }));
+        
+        // Also include unbadged children as direct targets
+        const unbadgedTargets = nonDeptHeadChildren
+          .filter(id => !badgedChildIds.has(id))
+          .map(id => {
+            const pos = getNodePosition(id, containerRect, forceRefresh);
+            return pos ? { x: pos.centerX, y: pos.top } : null;
+          })
+          .filter(Boolean) as Array<{ x: number; y: number }>;
+
+        const allTargets = [...badgeTargets, ...unbadgedTargets];
+        if (allTargets.length > 0) {
+          const treePath = createTreePath(mgrPos.centerX, mgrPos.bottom, allTargets, cornerRadius);
+          if (treePath) {
+            newPaths.push({
+              key: `tree-${mgrId}-to-badges`,
+              d: treePath,
+              stroke: primaryColor,
+              strokeWidth: primaryWidth
+            });
+          }
+        }
+
+        // Sub-badges → children within each department
+        subBadges.forEach(badge => {
+          const childPositions = badge.childIds
+            .map(id => {
+              const pos = getNodePosition(id, containerRect, forceRefresh);
+              return pos ? { x: pos.centerX, y: pos.top } : null;
+            })
+            .filter(Boolean) as Array<{ x: number; y: number }>;
+
+          if (childPositions.length > 0) {
+            const subTreePath = createTreePath(badge.pos.centerX, badge.pos.bottom, childPositions, cornerRadius);
+            if (subTreePath) {
+              newPaths.push({
+                key: `sub-badge-${mgrId}-${badge.dept}-to-children`,
+                d: subTreePath,
+                stroke: primaryColor,
+                strokeWidth: primaryWidth
+              });
+            }
+          }
         });
+      } else {
+        // Normal case: no sub-badges, draw direct tree
+        const validChildren = nonDeptHeadChildren
+          .map(id => {
+            const pos = getNodePosition(id, containerRect, forceRefresh);
+            return pos ? { x: pos.centerX, y: pos.top } : null;
+          })
+          .filter(Boolean) as Array<{ x: number; y: number }>;
+
+        if (validChildren.length === 0) return;
+
+        const treePath = createTreePath(mgrPos.centerX, mgrPos.bottom, validChildren, cornerRadius);
+        if (treePath) {
+          newPaths.push({
+            key: `tree-${mgrId}`,
+            d: treePath,
+            stroke: primaryColor,
+            strokeWidth: primaryWidth
+          });
+        }
       }
     });
 

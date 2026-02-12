@@ -1268,7 +1268,12 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
               
               {/* Level 1: Executive */}
               {rootPeople.length > 0 ? (
-                <div className="flex justify-center gap-16 shrink-0">
+                <div className="flex flex-col items-center gap-4 shrink-0">
+                  {/* Executive Department Badge */}
+                  <div className={`px-6 py-2 rounded-full text-xs font-bold uppercase tracking-widest shadow-lg border-2 border-white ${getDeptBadgeClasses('Executive')}`}>
+                    Executive
+                  </div>
+                  <div className="flex justify-center gap-16 shrink-0">
                   {rootPeople.map(person => (
                     <div key={person.id} className="card-node shrink-0">
                       <Card 
@@ -1287,6 +1292,7 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
                       />
                     </div>
                   ))}
+                  </div>
                 </div>
               ) : (
                 <div className="text-red-500 font-bold p-10 bg-white rounded shadow">
@@ -1294,68 +1300,70 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
                 </div>
               )}
 
-              {/* Level 2: Departments */}
-              <div className="flex gap-24 items-start shrink-0">
+              {/* Level 2: Department Badges (standalone row between exec and people) */}
+              <div className="flex gap-24 items-start justify-center shrink-0">
                 {allDeptNames.map(deptName => {
                   const heads = departments[deptName];
                   if (!heads || heads.length === 0) return null;
 
                   return (
-                    <div key={deptName} className="flex flex-col items-center shrink-0">
+                    <div key={deptName} className="flex flex-col items-center shrink-0 gap-12">
+                       {/* Department Badge - standalone node */}
+                       <div className={`relative ${colorPickerDept === deptName ? 'z-[300]' : 'z-10'}`}>
+                          <button
+                            id={`dept-badge-${deptName}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setColorPickerDept(colorPickerDept === deptName ? null : deptName);
+                            }}
+                            className={`px-8 py-3 rounded-full text-sm font-bold uppercase tracking-widest shadow-xl border-4 border-white cursor-pointer hover:scale-105 transition-transform whitespace-nowrap ${getDeptBadgeClasses(deptName)}`}
+                          >
+                            {deptName}
+                          </button>
+                          
+                          {/* Color Picker Popup */}
+                          {colorPickerDept === deptName && (
+                            <div 
+                              className="absolute top-full left-1/2 -translate-x-1/2 mt-2 p-3 bg-white rounded-xl shadow-xl border border-slate-200 z-[200]"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 text-center">Badge Color</div>
+                              <div className="flex flex-wrap gap-2 max-w-[180px] justify-center">
+                                {[
+                                  { name: 'slate', bg: 'bg-slate-700' },
+                                  { name: 'emerald', bg: 'bg-emerald-500' },
+                                  { name: 'blue', bg: 'bg-blue-500' },
+                                  { name: 'amber', bg: 'bg-amber-500' },
+                                  { name: 'purple', bg: 'bg-purple-500' },
+                                  { name: 'rose', bg: 'bg-rose-500' },
+                                  { name: 'cyan', bg: 'bg-cyan-500' },
+                                  { name: 'orange', bg: 'bg-orange-500' },
+                                  { name: 'indigo', bg: 'bg-indigo-500' },
+                                  { name: 'teal', bg: 'bg-teal-500' },
+                                ].map(color => (
+                                  <button
+                                    key={color.name}
+                                    type="button"
+                                    onClick={() => {
+                                      onSetDepartmentColor?.(deptName, color.name);
+                                      setColorPickerDept(null);
+                                    }}
+                                    className={`w-7 h-7 rounded-lg ${color.bg} transition-all ${departmentColors[deptName] === color.name ? 'ring-2 ring-offset-2 ring-slate-900 scale-110' : 'hover:scale-105'}`}
+                                    title={color.name}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                       </div>
+
+                       {/* Department People Container */}
                        <div className="relative rounded-[2rem] px-8 py-12 shrink-0">
-                          {/* Department Background - negative z-index so lines appear above */}
+                          {/* Department Background */}
                           <div 
                             className="absolute inset-0 bg-white/40 border border-slate-200/60 rounded-[2rem] shadow-sm hover:shadow-md transition-shadow"
                             style={{ zIndex: -1 }}
                           ></div>
-                          
-                          <div className={`absolute -top-3 left-1/2 -translate-x-1/2 ${colorPickerDept === deptName ? 'z-[300]' : ''}`}>
-                            <button
-                              id={`dept-badge-${deptName}`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setColorPickerDept(colorPickerDept === deptName ? null : deptName);
-                              }}
-                              className={`px-4 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest shadow-sm border-2 border-white cursor-pointer hover:scale-105 transition-transform ${getDeptBadgeClasses(deptName)}`}
-                            >
-                              {deptName}
-                            </button>
-                            
-                            {/* Color Picker Popup */}
-                            {colorPickerDept === deptName && (
-                              <div 
-                                className="absolute top-full left-1/2 -translate-x-1/2 mt-2 p-3 bg-white rounded-xl shadow-xl border border-slate-200 z-[200]"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 text-center">Badge Color</div>
-                                <div className="flex flex-wrap gap-2 max-w-[180px] justify-center">
-                                  {[
-                                    { name: 'slate', bg: 'bg-slate-700' },
-                                    { name: 'emerald', bg: 'bg-emerald-500' },
-                                    { name: 'blue', bg: 'bg-blue-500' },
-                                    { name: 'amber', bg: 'bg-amber-500' },
-                                    { name: 'purple', bg: 'bg-purple-500' },
-                                    { name: 'rose', bg: 'bg-rose-500' },
-                                    { name: 'cyan', bg: 'bg-cyan-500' },
-                                    { name: 'orange', bg: 'bg-orange-500' },
-                                    { name: 'indigo', bg: 'bg-indigo-500' },
-                                    { name: 'teal', bg: 'bg-teal-500' },
-                                  ].map(color => (
-                                    <button
-                                      key={color.name}
-                                      type="button"
-                                      onClick={() => {
-                                        onSetDepartmentColor?.(deptName, color.name);
-                                        setColorPickerDept(null);
-                                      }}
-                                      className={`w-7 h-7 rounded-lg ${color.bg} transition-all ${departmentColors[deptName] === color.name ? 'ring-2 ring-offset-2 ring-slate-900 scale-110' : 'hover:scale-105'}`}
-                                      title={color.name}
-                                    />
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
 
                           <div className="flex gap-16 shrink-0 relative">
                             {heads.map(head => (
@@ -1375,6 +1383,7 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
                                 departmentColors={departmentColors}
                                 locationColors={locationColors}
                                 onAddDirectReport={handleAddDirectReport}
+                                onSetDepartmentColor={onSetDepartmentColor}
                                 cardSettings={cardSettings}
                               />
                             ))}
@@ -1391,6 +1400,28 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
       </div>
     </div>
   );
+};
+
+// --- DEPARTMENT BADGE HELPER (standalone for use in sub-components) ---
+const getDeptBadgeClassesStandalone = (deptName: string, departmentColors: Record<string, string> = {}): string => {
+  const color = departmentColors[deptName];
+  const defaultStyle = 'bg-slate-700 text-white';
+  if (color) {
+    const colorMap: Record<string, string> = {
+      'slate': 'bg-slate-700 text-white',
+      'emerald': 'bg-emerald-500 text-white',
+      'blue': 'bg-blue-500 text-white',
+      'amber': 'bg-amber-500 text-white',
+      'purple': 'bg-purple-500 text-white',
+      'rose': 'bg-rose-500 text-white',
+      'cyan': 'bg-cyan-500 text-white',
+      'orange': 'bg-orange-500 text-white',
+      'indigo': 'bg-indigo-500 text-white',
+      'teal': 'bg-teal-500 text-white',
+    };
+    return colorMap[color] || defaultStyle;
+  }
+  return defaultStyle;
 };
 
 // --- RECURSIVE HIERARCHY TREE ---
@@ -1410,11 +1441,13 @@ interface TreeProps {
   departmentColors?: Record<string, string>;
   locationColors?: Record<string, string>;
   onAddDirectReport?: (managerId: string, department?: string, location?: string) => void;
+  onSetDepartmentColor?: (dept: string, color: string) => void;
   cardSettings?: CardSettings;
   level?: number;
 }
 
-const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDragStart, onDragEnd, onDrop, draggedId, getSecondaryManager, onEdit, onDelete, onDeletePerson, isInsideParentTeam = false, departmentColors = {}, locationColors = {}, onAddDirectReport, cardSettings, level = 0 }) => {
+const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDragStart, onDragEnd, onDrop, draggedId, getSecondaryManager, onEdit, onDelete, onDeletePerson, isInsideParentTeam = false, departmentColors = {}, locationColors = {}, onAddDirectReport, onSetDepartmentColor, cardSettings, level = 0 }) => {
+  const [subColorPickerDept, setSubColorPickerDept] = useState<string | null>(null);
   
   // Find direct reports
   const directReports = useMemo(() => {
@@ -1436,6 +1469,24 @@ const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDra
     });
     return { teams: t, others: o };
   }, [directReports]);
+
+  // Group ALL direct reports by department first (before team split)
+  // Show department badges when any child is in a different department than the parent
+  const { deptGroupsAll, showDeptBadges } = useMemo(() => {
+    const groups: Record<string, { teamMembers: Record<string, Person[]>; nonTeamMembers: Person[] }> = {};
+    directReports.forEach(p => {
+      const dept = p.department || 'Other';
+      if (!groups[dept]) groups[dept] = { teamMembers: {}, nonTeamMembers: [] };
+      if (p.teamName) {
+        if (!groups[dept].teamMembers[p.teamName]) groups[dept].teamMembers[p.teamName] = [];
+        groups[dept].teamMembers[p.teamName].push(p);
+      } else {
+        groups[dept].nonTeamMembers.push(p);
+      }
+    });
+    const childHasDifferentDept = directReports.some(p => (p.department || 'Other') !== root.department);
+    return { deptGroupsAll: groups, showDeptBadges: childHasDifferentDept };
+  }, [directReports, root.department]);
 
   const hasChildren = directReports.length > 0;
 
@@ -1483,6 +1534,7 @@ const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDra
           departmentColors={departmentColors}
           locationColors={locationColors}
           onAddDirectReport={onAddDirectReport}
+          onSetDepartmentColor={onSetDepartmentColor}
           cardSettings={cardSettings}
           level={level}
         />
@@ -1527,38 +1579,150 @@ const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDra
       {hasChildren && (
         <div className="flex items-start gap-8 relative">
           
-          {/* Render Named Teams - Always show team grouping background */}
-          {Object.entries(teams).map(([teamName, members]) => {
-             const teamMembers = members as Person[];
-             const teamColor = teamMembers.find(m => m.teamColor)?.teamColor;
-             return (
-               <TeamGroup 
-                  key={teamName}
-                  teamName={teamName}
-                  members={teamMembers}
-                  people={people}
-                  onPersonClick={onPersonClick}
-                  onDragStart={onDragStart}
-                  onDragEnd={onDragEnd}
-                  onDrop={onDrop}
-                  draggedId={draggedId}
-                  getSecondaryManager={getSecondaryManager}
-                  onDeletePerson={onDeletePerson}
-                  teamColor={teamColor}
-                  departmentColors={departmentColors}
-                  locationColors={locationColors}
-                  onAddDirectReport={onAddDirectReport}
-                  cardSettings={cardSettings}
-                  level={level + 1}
-               />
-             );
-          })}
-
-          {/* Render Others (No Team, No Location Grouping) */}
-          {others.length > 0 && (
-             <div className="flex gap-6 items-start">
-                {others.map(member => (
-                   <HierarchyTree 
+          {showDeptBadges ? (
+            /* Department grouping: wrap ALL children by department with badges */
+            Object.entries(deptGroupsAll).map(([deptName, { teamMembers, nonTeamMembers }]) => (
+              <div key={`dept-${deptName}`} className="flex flex-col items-center shrink-0 gap-8">
+                {/* Department Badge - clickable for color selection */}
+                <div className={`relative ${subColorPickerDept === deptName ? 'z-[300]' : 'z-10'}`}>
+                  <button
+                    id={`sub-dept-badge-${root.id}-${deptName}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSubColorPickerDept(subColorPickerDept === deptName ? null : deptName);
+                    }}
+                    className={`px-8 py-3 rounded-full text-sm font-bold uppercase tracking-widest shadow-xl border-4 border-white whitespace-nowrap cursor-pointer hover:scale-105 transition-transform ${getDeptBadgeClassesStandalone(deptName, departmentColors)}`}
+                  >
+                    {deptName}
+                  </button>
+                  {/* Color Picker Popup */}
+                  {subColorPickerDept === deptName && (
+                    <div 
+                      className="absolute top-full left-1/2 -translate-x-1/2 mt-2 p-3 bg-white rounded-xl shadow-xl border border-slate-200 z-[200]"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 text-center">Badge Color</div>
+                      <div className="flex flex-wrap gap-2 max-w-[180px] justify-center">
+                        {[
+                          { name: 'slate', bg: 'bg-slate-700' },
+                          { name: 'emerald', bg: 'bg-emerald-500' },
+                          { name: 'blue', bg: 'bg-blue-500' },
+                          { name: 'amber', bg: 'bg-amber-500' },
+                          { name: 'purple', bg: 'bg-purple-500' },
+                          { name: 'rose', bg: 'bg-rose-500' },
+                          { name: 'cyan', bg: 'bg-cyan-500' },
+                          { name: 'orange', bg: 'bg-orange-500' },
+                          { name: 'indigo', bg: 'bg-indigo-500' },
+                          { name: 'teal', bg: 'bg-teal-500' },
+                        ].map(color => (
+                          <button
+                            key={color.name}
+                            type="button"
+                            onClick={() => {
+                              onSetDepartmentColor?.(deptName, color.name);
+                              setSubColorPickerDept(null);
+                            }}
+                            className={`w-7 h-7 rounded-lg ${color.bg} transition-all ${departmentColors[deptName] === color.name ? 'ring-2 ring-offset-2 ring-slate-900 scale-110' : 'hover:scale-105'}`}
+                            title={color.name}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {/* Department People Container */}
+                <div className="relative rounded-[2rem] px-6 py-8 shrink-0">
+                  <div 
+                    className="absolute inset-0 bg-white/40 border border-slate-200/60 rounded-[2rem] shadow-sm"
+                    style={{ zIndex: -1 }}
+                  ></div>
+                  <div className="flex gap-6 items-start relative">
+                    {/* Teams within this department */}
+                    {Object.entries(teamMembers).map(([teamName, members]) => {
+                      const teamColor = members.find(m => m.teamColor)?.teamColor;
+                      return (
+                        <TeamGroup 
+                          key={teamName}
+                          teamName={teamName}
+                          members={members}
+                          people={people}
+                          onPersonClick={onPersonClick}
+                          onDragStart={onDragStart}
+                          onDragEnd={onDragEnd}
+                          onDrop={onDrop}
+                          draggedId={draggedId}
+                          getSecondaryManager={getSecondaryManager}
+                          onDeletePerson={onDeletePerson}
+                          teamColor={teamColor}
+                          departmentColors={departmentColors}
+                          locationColors={locationColors}
+                          onAddDirectReport={onAddDirectReport}
+                          onSetDepartmentColor={onSetDepartmentColor}
+                          cardSettings={cardSettings}
+                          level={level + 1}
+                        />
+                      );
+                    })}
+                    {/* Non-team members within this department */}
+                    {nonTeamMembers.map(member => (
+                      <HierarchyTree 
+                        key={member.id}
+                        root={member}
+                        people={people}
+                        onPersonClick={onPersonClick}
+                        onDragStart={onDragStart}
+                        onDragEnd={onDragEnd}
+                        onDrop={onDrop}
+                        draggedId={draggedId}
+                        getSecondaryManager={getSecondaryManager}
+                        onEdit={() => onPersonClick(member)}
+                        onDelete={() => onDeletePerson?.(member.id)}
+                        onDeletePerson={onDeletePerson}
+                        departmentColors={departmentColors}
+                        locationColors={locationColors}
+                        onAddDirectReport={onAddDirectReport}
+                        onSetDepartmentColor={onSetDepartmentColor}
+                        cardSettings={cardSettings}
+                        level={level + 1}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))
+          ) : (
+            /* No department variation: render teams and others flat */
+            <>
+              {Object.entries(teams).map(([teamName, members]) => {
+                const teamMembers = members as Person[];
+                const teamColor = teamMembers.find(m => m.teamColor)?.teamColor;
+                return (
+                  <TeamGroup 
+                    key={teamName}
+                    teamName={teamName}
+                    members={teamMembers}
+                    people={people}
+                    onPersonClick={onPersonClick}
+                    onDragStart={onDragStart}
+                    onDragEnd={onDragEnd}
+                    onDrop={onDrop}
+                    draggedId={draggedId}
+                    getSecondaryManager={getSecondaryManager}
+                    onDeletePerson={onDeletePerson}
+                    teamColor={teamColor}
+                    departmentColors={departmentColors}
+                    locationColors={locationColors}
+                    onAddDirectReport={onAddDirectReport}
+                    onSetDepartmentColor={onSetDepartmentColor}
+                    cardSettings={cardSettings}
+                    level={level + 1}
+                  />
+                );
+              })}
+              {others.length > 0 && (
+                <div className="flex gap-6 items-start">
+                  {others.map(member => (
+                    <HierarchyTree 
                       key={member.id}
                       root={member}
                       people={people}
@@ -1568,17 +1732,20 @@ const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDra
                       onDrop={onDrop}
                       draggedId={draggedId}
                       getSecondaryManager={getSecondaryManager}
-                     onEdit={() => onPersonClick(member)}
-                     onDelete={() => onDeletePerson?.(member.id)}
-                     onDeletePerson={onDeletePerson}
-                     departmentColors={departmentColors}
-                     locationColors={locationColors}
-                     onAddDirectReport={onAddDirectReport}
-                     cardSettings={cardSettings}
-                     level={level + 1}
-                   />
-                ))}
-             </div>
+                      onEdit={() => onPersonClick(member)}
+                      onDelete={() => onDeletePerson?.(member.id)}
+                      onDeletePerson={onDeletePerson}
+                      departmentColors={departmentColors}
+                      locationColors={locationColors}
+                      onAddDirectReport={onAddDirectReport}
+                      onSetDepartmentColor={onSetDepartmentColor}
+                      cardSettings={cardSettings}
+                      level={level + 1}
+                    />
+                  ))}
+                </div>
+              )}
+            </>
           )}
 
         </div>
@@ -1609,9 +1776,10 @@ const TeamGroup: React.FC<{
   departmentColors?: Record<string, string>;
   locationColors?: Record<string, string>;
   onAddDirectReport?: (managerId: string, department?: string, location?: string) => void;
+  onSetDepartmentColor?: (dept: string, color: string) => void;
   cardSettings?: CardSettings;
   level?: number;
-}> = ({ teamName, members, people, onPersonClick, onDragStart, onDragEnd, onDrop, draggedId, getSecondaryManager, onDeletePerson, includeRootAsHead, rootPerson, onRootEdit, onRootDelete, teamColor, otherTeams, others, departmentColors = {}, locationColors = {}, onAddDirectReport, cardSettings, level = 0 }) => {
+}> = ({ teamName, members, people, onPersonClick, onDragStart, onDragEnd, onDrop, draggedId, getSecondaryManager, onDeletePerson, includeRootAsHead, rootPerson, onRootEdit, onRootDelete, teamColor, otherTeams, others, departmentColors = {}, locationColors = {}, onAddDirectReport, onSetDepartmentColor, cardSettings, level = 0 }) => {
   
   // Sort: Team Leader first, then root if included
   const sortedMembers = useMemo(() => {
@@ -1706,6 +1874,7 @@ const TeamGroup: React.FC<{
                         departmentColors={departmentColors}
                         locationColors={locationColors}
                         onAddDirectReport={onAddDirectReport}
+                        onSetDepartmentColor={onSetDepartmentColor}
                         cardSettings={cardSettings}
                         level={includeRootAsHead ? level + 1 : level}
                     />
@@ -1734,6 +1903,7 @@ const TeamGroup: React.FC<{
                       departmentColors={departmentColors}
                       locationColors={locationColors}
                       onAddDirectReport={onAddDirectReport}
+                      onSetDepartmentColor={onSetDepartmentColor}
                       cardSettings={cardSettings}
                       level={includeRootAsHead ? level + 1 : level}
                     />
@@ -1762,6 +1932,7 @@ const TeamGroup: React.FC<{
                     departmentColors={departmentColors}
                     locationColors={locationColors}
                     onAddDirectReport={onAddDirectReport}
+                    onSetDepartmentColor={onSetDepartmentColor}
                   />
                 ))}
               </div>

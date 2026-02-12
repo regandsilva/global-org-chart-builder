@@ -79,31 +79,41 @@ const DEFAULT_CARD_SETTINGS: CardSettings = {
 const App: React.FC = () => {
   // Initialize state from localStorage if available
   const { state: appState, set: setAppState, undo, redo, canUndo, canRedo } = useHistoryState<AppState>(() => {
-    const savedPeople = localStorage.getItem('org-chart-people');
-    const savedDepartments = localStorage.getItem('org-chart-departments');
-    const savedLocations = localStorage.getItem('org-chart-locations');
-    const savedJobTitles = localStorage.getItem('org-chart-job-titles');
-    const savedColors = localStorage.getItem('org-chart-colors');
-    const savedLocationColors = localStorage.getItem('org-chart-location-colors');
-    const savedLineSettings = localStorage.getItem('org-chart-line-settings');
-    const savedCardSettings = localStorage.getItem('org-chart-card-settings');
+    // Safe JSON parse helper — returns fallback on any error
+    const safeParse = <T,>(key: string, fallback: T): T => {
+      try {
+        const raw = localStorage.getItem(key);
+        if (raw === null) return fallback;
+        const parsed = JSON.parse(raw);
+        // Basic validation: ensure parsed value is roughly the right type
+        if (parsed === null || parsed === undefined) return fallback;
+        return parsed as T;
+      } catch (e) {
+        console.warn(`Failed to parse localStorage key "${key}", using defaults.`, e);
+        // Remove the corrupt entry so next save writes clean data
+        try { localStorage.removeItem(key); } catch {}
+        return fallback;
+      }
+    };
 
     // Merge saved settings with defaults to ensure new settings have proper defaults
-    const mergedLineSettings = savedLineSettings 
-      ? { ...DEFAULT_LINE_SETTINGS, ...JSON.parse(savedLineSettings) }
-      : DEFAULT_LINE_SETTINGS;
+    const mergedLineSettings = {
+      ...DEFAULT_LINE_SETTINGS,
+      ...safeParse<Partial<LineSettings>>('org-chart-line-settings', {})
+    };
     
-    const mergedCardSettings = savedCardSettings 
-      ? { ...DEFAULT_CARD_SETTINGS, ...JSON.parse(savedCardSettings) }
-      : DEFAULT_CARD_SETTINGS;
+    const mergedCardSettings = {
+      ...DEFAULT_CARD_SETTINGS,
+      ...safeParse<Partial<CardSettings>>('org-chart-card-settings', {})
+    };
 
     return {
-      people: savedPeople ? JSON.parse(savedPeople) : INITIAL_PEOPLE,
-      departments: savedDepartments ? JSON.parse(savedDepartments) : DEPARTMENTS,
-      locations: savedLocations ? JSON.parse(savedLocations) : LOCATIONS,
-      jobTitles: savedJobTitles ? JSON.parse(savedJobTitles) : JOB_TITLES,
-      departmentColors: savedColors ? JSON.parse(savedColors) : DEPT_COLORS,
-      locationColors: savedLocationColors ? JSON.parse(savedLocationColors) : {},
+      people: safeParse<Person[]>('org-chart-people', INITIAL_PEOPLE),
+      departments: safeParse<string[]>('org-chart-departments', DEPARTMENTS),
+      locations: safeParse<string[]>('org-chart-locations', LOCATIONS),
+      jobTitles: safeParse<string[]>('org-chart-job-titles', JOB_TITLES),
+      departmentColors: safeParse<Record<string, string>>('org-chart-colors', DEPT_COLORS),
+      locationColors: safeParse<Record<string, string>>('org-chart-location-colors', {}),
       lineSettings: mergedLineSettings,
       cardSettings: mergedCardSettings
     };
