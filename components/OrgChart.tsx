@@ -49,6 +49,9 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
   const [isZooming, setIsZooming] = useState(false); // Track when actively zooming for smooth transitions
   const zoomTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dragStart = useRef({ x: 0, y: 0 });
+
+  // Tier background bands state
+  const [tierBands, setTierBands] = useState<Array<{tier: number; top: number; height: number; width: number}>>([]);
   
   // Unified Settings Panel
   const [showSettings, setShowSettings] = useState(false);
@@ -199,6 +202,204 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
     });
     return depts;
   }, [deptHeads]);
+
+  // Compute effective tier (absolute depth from root) for each person
+  // Auto-assign: tier = hierarchy depth (CEO=0, direct reports=1, etc.)
+  // Manual override: if person.tier is set, use it (but enforce child > parent)
+  const effectiveTiers = useMemo(() => {
+    const tiers = new Map<string, number>();
+    const visited = new Set<string>();
+    const queue: Array<{ id: string; depth: number }> = [];
+
+    // Build a children lookup for efficient traversal
+    const childrenOf = new Map<string, Person[]>();
+    people.forEach(p => {
+      if (p.managerId) {
+        if (!childrenOf.has(p.managerId)) childrenOf.set(p.managerId, []);
+        childrenOf.get(p.managerId)!.push(p);
+      }
+    });
+
+    // Seed: root people always start at tier 0 (Executive)
+    // unless manually overridden
+    rootPeople.forEach(p => {
+      const tier = (p.tier != null) ? p.tier : 0;
+      tiers.set(p.id, tier);
+      visited.add(p.id);
+      queue.push({ id: p.id, depth: 0 });
+    });
+
+    // BFS traversal - auto-assign based on depth, respect overrides
+    while (queue.length > 0) {
+      const { id, depth } = queue.shift()!;
+      const parentTier = tiers.get(id)!;
+      const children = childrenOf.get(id) || [];
+      children.forEach(child => {
+        if (visited.has(child.id)) return; // cycle protection
+        const naturalTier = parentTier + 1; // auto: one below parent
+        const desired = (child.tier != null) ? child.tier : naturalTier;
+        // Enforce: child must be at least parentTier + 1
+        const effective = Math.max(desired, parentTier + 1);
+        tiers.set(child.id, effective);
+        visited.add(child.id);
+        queue.push({ id: child.id, depth: depth + 1 });
+      });
+    }
+
+    // Orphans: people not reached by BFS
+    people.forEach(p => {
+      if (!visited.has(p.id)) {
+        tiers.set(p.id, (p.tier != null) ? p.tier : 0);
+      }
+    });
+
+    return tiers;
+  }, [people, rootPeople]);
+
+  // Align same-tier nodes horizontally and compute tier background bands.
+  // Uses requestAnimationFrame to avoid layout thrashing glitches.
+  const tierAlignRafRef = useRef<number>(0);
+
+  useEffect(() => {
+    // Cancel any pending frame
+    cancelAnimationFrame(tierAlignRafRef.current);
+
+    tierAlignRafRef.current = requestAnimationFrame(() => {
+      const container = document.getElementById('chart-content');
+      if (!container || people.length === 0) {
+        setTierBands([]);
+        return;
+      }
+
+      // Step 1: Reset all previous tier alignment margins
+      container.querySelectorAll('[data-tier-align]').forEach(el => {
+        (el as HTMLElement).style.marginTop = '0px';
+      });
+
+      // Step 2: Group elements by their effective tier
+      const tierGroups = new Map<number, Array<{ personId: string; wrapper: HTMLElement }>>();
+
+      effectiveTiers.forEach((tier, personId) => {
+        const nodeEl = document.getElementById(`node-${personId}`);
+        if (!nodeEl) return;
+        const wrapper = nodeEl.closest('[data-tier-align]') as HTMLElement;
+        if (!wrapper) return;
+        if (!tierGroups.has(tier)) tierGroups.set(tier, []);
+        tierGroups.get(tier)!.push({ personId, wrapper });
+      });
+
+      const sortedTiers = Array.from(tierGroups.keys()).sort((a, b) => a - b);
+      if (sortedTiers.length === 0) {
+        setTierBands([]);
+        return;
+      }
+
+      const tierGap = 24; // minimum px gap between tier bands
+      const MAX_PASSES = 8;
+
+      // Helper: measure a node's position relative to container, accounting for scale
+      const measureNode = (personId: string, containerTop: number) => {
+        const nodeEl = document.getElementById(`node-${personId}`);
+        if (!nodeEl) return { top: 0, bottom: 0 };
+        const rect = nodeEl.getBoundingClientRect();
+        return {
+          top: (rect.top - containerTop) / scale,
+          bottom: (rect.bottom - containerTop) / scale,
+        };
+      };
+
+      // Step 3: Multi-pass alignment until converged
+      for (let pass = 0; pass < MAX_PASSES; pass++) {
+        let totalDelta = 0;
+        const cTop = container.getBoundingClientRect().top;
+
+        for (let i = 0; i < sortedTiers.length; i++) {
+          const tier = sortedTiers[i];
+          const group = tierGroups.get(tier)!;
+
+          // 3a) Align same-tier cards to same horizontal line (push up to max Y)
+          if (group.length > 1) {
+            // Re-read container top since margins changed
+            const ct = container.getBoundingClientRect().top;
+            const measurements = group.map(item => ({
+              ...item,
+              ...measureNode(item.personId, ct),
+            }));
+            const maxTop = Math.max(...measurements.map(m => m.top));
+
+            measurements.forEach(item => {
+              const delta = maxTop - item.top;
+              if (delta > 0.5) {
+                const current = parseFloat(item.wrapper.style.marginTop || '0');
+                item.wrapper.style.marginTop = `${current + delta}px`;
+                totalDelta += delta;
+              }
+            });
+          }
+
+          // 3b) Enforce ordering: this tier must start below previous tier's bottom
+          if (i > 0) {
+            const ct = container.getBoundingClientRect().top;
+            const prevGroup = tierGroups.get(sortedTiers[i - 1])!;
+            let prevMaxBottom = -Infinity;
+            prevGroup.forEach(item => {
+              const m = measureNode(item.personId, ct);
+              if (m.bottom > prevMaxBottom) prevMaxBottom = m.bottom;
+            });
+
+            let curMinTop = Infinity;
+            group.forEach(item => {
+              const m = measureNode(item.personId, ct);
+              if (m.top < curMinTop) curMinTop = m.top;
+            });
+
+            const needed = prevMaxBottom + tierGap - curMinTop;
+            if (needed > 0.5) {
+              group.forEach(item => {
+                const current = parseFloat(item.wrapper.style.marginTop || '0');
+                item.wrapper.style.marginTop = `${current + needed}px`;
+              });
+              totalDelta += needed * group.length;
+            }
+          }
+        }
+
+        // Converged
+        if (totalDelta < 0.5) break;
+      }
+
+      // Step 4: Compute tier background band positions
+      // Positions are in the container's coordinate space (pre-scale),
+      // suitable for absolute positioning inside #chart-content
+      const cTop = container.getBoundingClientRect().top;
+      const bandPadding = 16;
+      const bands: Array<{ tier: number; top: number; height: number; width: number }> = [];
+
+      for (const tier of sortedTiers) {
+        const group = tierGroups.get(tier)!;
+        let minTop = Infinity, maxBottom = -Infinity;
+
+        group.forEach(item => {
+          const m = measureNode(item.personId, cTop);
+          if (m.top < minTop) minTop = m.top;
+          if (m.bottom > maxBottom) maxBottom = m.bottom;
+        });
+
+        if (minTop !== Infinity) {
+          bands.push({
+            tier,
+            top: minTop - bandPadding,
+            height: (maxBottom - minTop) + bandPadding * 2,
+            width: container.scrollWidth,
+          });
+        }
+      }
+
+      setTierBands(bands);
+    });
+
+    return () => cancelAnimationFrame(tierAlignRafRef.current);
+  }, [people, effectiveTiers, cardSettings, scale]);
 
   const allDeptNames = useMemo(() => {
     if (propDepartments) return propDepartments;
@@ -758,12 +959,12 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
                           min="0"
                           max="20"
                           className="w-20 px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                          value={editingPerson.tier || ''}
-                          onChange={e => setEditingPerson({...editingPerson, tier: e.target.value ? parseInt(e.target.value) : undefined})}
+                          value={editingPerson.tier != null ? editingPerson.tier : ''}
+                          onChange={e => setEditingPerson({...editingPerson, tier: e.target.value !== '' ? parseInt(e.target.value) : undefined})}
                           placeholder="Auto"
                         />
                         <p className="text-[10px] text-slate-400 flex-1">
-                          Force this person to appear at a specific level (0 = Top). Leave empty for automatic.
+                          Force this person to appear at a specific level (0 = Executive). Leave empty for auto.
                         </p>
                       </div>
                     </div>
@@ -1257,6 +1458,47 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
         >
           <div id="chart-content" className="inline-block min-w-max p-24 relative">
             
+            {/* Tier Background Bands - horizontal bands showing tier categories */}
+            {tierBands.length > 0 && tierBands.map((band, i) => (
+              <div
+                key={`tier-band-${band.tier}`}
+                style={{
+                  position: 'absolute',
+                  top: band.top,
+                  left: 0,
+                  right: 0,
+                  height: band.height,
+                  backgroundColor: i % 2 === 0 ? 'rgba(241, 245, 249, 0.45)' : 'rgba(226, 232, 240, 0.3)',
+                  zIndex: 0,
+                  pointerEvents: 'none',
+                  borderTop: '1px solid rgba(203, 213, 225, 0.4)',
+                  borderBottom: '1px solid rgba(203, 213, 225, 0.4)',
+                }}
+              >
+                <div
+                  style={{
+                    position: 'sticky',
+                    left: 12,
+                    top: 4,
+                    display: 'inline-block',
+                    padding: '2px 10px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: '0.05em',
+                    textTransform: 'uppercase',
+                    color: 'rgba(100, 116, 139, 0.7)',
+                    backgroundColor: 'rgba(255,255,255,0.6)',
+                    borderRadius: 6,
+                    marginLeft: 12,
+                    marginTop: 4,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {band.tier === 0 ? 'Executive' : `Tier ${band.tier}`}
+                </div>
+              </div>
+            ))}
+
             {/* Layer 1: Team/Department Backgrounds (z-index 1) - rendered BELOW lines */}
             {/* We achieve this by keeping backgrounds inside content but with negative z-index */}
             
@@ -1264,7 +1506,7 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
             <Lines people={people} deptHeads={deptHeads} scale={scale} settings={lineSettings} />
 
             {/* Content - no z-index to avoid creating stacking context */}
-            <div className="flex flex-col items-center gap-20 relative">
+            <div className="flex flex-col items-center gap-8 relative">
               
               {/* Level 1: Executive */}
               {rootPeople.length > 0 ? (
@@ -1275,7 +1517,7 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
                   </div>
                   <div className="flex justify-center gap-16 shrink-0">
                   {rootPeople.map(person => (
-                    <div key={person.id} className="card-node shrink-0">
+                    <div key={person.id} className="card-node shrink-0" data-tier-align={person.id}>
                       <Card 
                         person={person} 
                         onClick={handleEditClick} 
@@ -1307,7 +1549,7 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
                   if (!heads || heads.length === 0) return null;
 
                   return (
-                    <div key={deptName} className="flex flex-col items-center shrink-0 gap-12">
+                    <div key={deptName} className="flex flex-col items-center shrink-0 gap-4">
                        {/* Department Badge - standalone node */}
                        <div className={`relative ${colorPickerDept === deptName ? 'z-[300]' : 'z-10'}`}>
                           <button
@@ -1358,7 +1600,7 @@ export const OrgChart: React.FC<OrgChartProps> = ({ people, lineSettings, onUpda
                        </div>
 
                        {/* Department People Container */}
-                       <div className="relative rounded-[2rem] px-8 py-12 shrink-0">
+                       <div className="relative rounded-[2rem] px-8 py-6 shrink-0">
                           {/* Department Background */}
                           <div 
                             className="absolute inset-0 bg-white/40 border border-slate-200/60 rounded-[2rem] shadow-sm hover:shadow-md transition-shadow"
@@ -1490,10 +1732,6 @@ const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDra
 
   const hasChildren = directReports.length > 0;
 
-  // Calculate tier offset (push down)
-  // Assuming ~200px per level. If tier is set and greater than current level, add margin.
-  const tierOffset = (root.tier && root.tier > level) ? (root.tier - level) * 200 : 0;
-
   // If root has a team name AND we're not already inside a parent's team, wrap everything
   const rootTeamName = root.teamName;
   
@@ -1513,7 +1751,7 @@ const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDra
     const otherTeamsList = Object.entries(otherTeamsMap);
 
     return (
-      <div style={{ marginTop: tierOffset }}>
+      <div data-tier-align={root.id}>
         <TeamGroup 
           teamName={rootTeamName}
           members={[root, ...sameTeamMembers]}
@@ -1543,9 +1781,9 @@ const HierarchyTree: React.FC<TreeProps> = ({ root, people, onPersonClick, onDra
   }
 
   return (
-    <div className="flex flex-col items-center" style={{ marginTop: tierOffset }}>
+    <div className="flex flex-col items-center" data-tier-align={root.id}>
       {/* The Manager Card */}
-      <div className="card-node shrink-0 mb-12 relative group/add">
+      <div className="card-node shrink-0 mb-4 relative group/add">
         <Card 
           person={root} 
           onClick={onPersonClick} 
